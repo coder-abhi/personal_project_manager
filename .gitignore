@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+__pycache__/
+*.py[cod]
+app.db
+*.db
+
+node_modules/
+.next/
+out/
+dist/
