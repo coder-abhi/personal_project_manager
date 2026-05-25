@@ -1,4 +1,4 @@
-import type { Task, TaskStatus } from "@/lib/api";
+import type { Task, TaskPriority, TaskStatus } from "@/lib/api";
 
 const statusStyles: Record<TaskStatus, string> = {
   todo: "bg-gray-100 text-gray-700",
@@ -7,25 +7,109 @@ const statusStyles: Record<TaskStatus, string> = {
   delayed: "bg-red-100 text-red-700",
 };
 
-export function TaskItem({ task }: { task: Task }) {
+const priorityStyles: Record<TaskPriority, string> = {
+  high: "bg-red-50 text-red-700 ring-red-100",
+  medium: "bg-amber-50 text-amber-700 ring-amber-100",
+  low: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+};
+
+const progressTones = [
+  { limit: 35, text: "text-red-700", track: "#fee2e2", fill: "#dc2626" },
+  { limit: 70, text: "text-amber-700", track: "#fef3c7", fill: "#d97706" },
+  { limit: 99, text: "text-blue-700", track: "#dbeafe", fill: "#2563eb" },
+  { limit: 100, text: "text-emerald-700", track: "#d1fae5", fill: "#059669" },
+];
+
+type TaskItemProps = {
+  task: Task;
+  onStatusChange: (taskId: string, nextStatus: TaskStatus) => void;
+  onToggleComplete: (task: Task) => void;
+};
+
+export function TaskItem({ task, onStatusChange, onToggleComplete }: TaskItemProps) {
   const deadline = task.deadline ? new Date(task.deadline).toLocaleDateString() : "No deadline";
   const overrun = task.time_spent_hours - task.eta_hours;
+  const progress = getTaskProgress(task);
+  const progressTone = progressTones.find((tone) => progress <= tone.limit) ?? progressTones[progressTones.length - 1];
+  const remainingHours = task.status === "done" ? 0 : Math.max(task.eta_hours - task.time_spent_hours, 0);
 
   return (
-    <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm md:grid-cols-[1.6fr_0.8fr_0.6fr_0.8fr_0.9fr] md:items-center">
-      <div>
-        <p className="font-medium text-gray-950">{task.title}</p>
-        {task.description ? <p className="mt-1 text-sm text-gray-500">{task.description}</p> : null}
+    <div className="grid gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm md:grid-cols-[76px_minmax(0,1.5fr)_0.8fr_0.8fr] md:items-center">
+      <div className="flex items-center gap-3 md:block">
+        <div
+          className="grid size-16 place-items-center rounded-full"
+          style={{ background: `conic-gradient(${progressTone.fill} ${progress * 3.6}deg, ${progressTone.track} 0deg)` }}
+          aria-label={`${progress}% complete`}
+        >
+          <div className="grid size-12 place-items-center rounded-full bg-white">
+            <span className={`text-sm font-bold ${progressTone.text}`}>{progress}%</span>
+          </div>
+        </div>
+        <p className={`text-xs font-semibold md:mt-2 md:text-center ${progressTone.text}`}>Complete</p>
       </div>
-      <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[task.status]}`}>
-        {task.status.replace("_", " ")}
-      </span>
-      <p className="text-sm text-gray-700">{task.eta_hours}h ETA</p>
-      <p className="text-sm text-gray-700">{task.time_spent_hours}h spent</p>
-      <div className="text-sm">
-        <p className={task.status === "delayed" ? "font-medium text-red-600" : "text-gray-700"}>{deadline}</p>
-        {overrun > 0 ? <p className="mt-1 text-xs font-medium text-red-600">Overrun +{overrun.toFixed(1)}h</p> : null}
+
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="truncate font-medium text-gray-950">{task.title}</p>
+          <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[task.status]}`}>
+            {task.status.replace("_", " ")}
+          </span>
+          <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ring-1 ${priorityStyles[task.priority]}`}>
+            {task.priority}
+          </span>
+        </div>
+        {task.description ? <p className="mt-1 text-sm text-gray-500">{task.description}</p> : null}
+        <p className={task.status === "delayed" ? "mt-2 text-sm font-medium text-red-600" : "mt-2 text-sm text-gray-600"}>
+          Deadline: {deadline}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 rounded-md bg-gray-50 p-3 text-sm md:grid-cols-1">
+        <p className="text-gray-600">
+          <span className="block text-xs uppercase tracking-wide text-gray-400">ETA</span>
+          <span className="font-semibold text-gray-950">{task.eta_hours}h</span>
+        </p>
+        <p className="text-gray-600">
+          <span className="block text-xs uppercase tracking-wide text-gray-400">Spent</span>
+          <span className="font-semibold text-gray-950">{task.time_spent_hours}h</span>
+        </p>
+        <p className="text-gray-600">
+          <span className="block text-xs uppercase tracking-wide text-gray-400">Left</span>
+          <span className={overrun > 0 ? "font-semibold text-red-600" : "font-semibold text-gray-950"}>
+            {remainingHours.toFixed(1)}h
+          </span>
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={() => onToggleComplete(task)}
+          className={
+            task.status === "done"
+              ? "rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
+              : "rounded-md bg-gray-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-gray-800"
+          }
+        >
+          {task.status === "done" ? "Mark incomplete" : "Mark complete"}
+        </button>
+        <select
+          value={task.status}
+          onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
+          className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm outline-none ring-gray-900/10 focus:ring-4"
+        >
+          <option value="todo">Todo</option>
+          <option value="in_progress">In progress</option>
+          <option value="done">Done</option>
+          <option value="delayed">Delayed</option>
+        </select>
       </div>
     </div>
   );
+}
+
+function getTaskProgress(task: Task) {
+  if (task.status === "done") return 100;
+  if (task.eta_hours <= 0) return task.time_spent_hours > 0 ? 100 : 0;
+  return Math.min(Math.round((task.time_spent_hours / task.eta_hours) * 100), 100);
 }

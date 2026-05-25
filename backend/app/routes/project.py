@@ -12,6 +12,11 @@ async def list_projects(db: Session = Depends(get_db)):
     return crud.list_projects(db)
 
 
+@router.get("/summary", response_model=list[schemas.ProjectSummary])
+async def list_project_summaries(db: Session = Depends(get_db)):
+    return crud.list_project_summaries(db)
+
+
 @router.post("", response_model=schemas.ProjectRead, status_code=status.HTTP_201_CREATED)
 async def create_project(project: schemas.ProjectCreate, db: Session = Depends(get_db)):
     return crud.create_project(db, project)

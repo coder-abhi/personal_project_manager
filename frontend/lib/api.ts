@@ -1,5 +1,6 @@
 export type ProjectType = "continuous" | "fixed" | "study";
 export type TaskStatus = "todo" | "in_progress" | "done" | "delayed";
+export type TaskPriority = "high" | "medium" | "low";
 
 export type Project = {
   id: string;
@@ -8,12 +9,26 @@ export type Project = {
   created_at: string;
 };
 
+export type ProjectSummary = Project & {
+  total_tasks: number;
+  completed_tasks: number;
+  in_progress_tasks: number;
+  delayed_tasks: number;
+  overdue_tasks: number;
+  eta_hours: number;
+  time_spent_hours: number;
+  completed_hours: number;
+  remaining_hours: number;
+  next_deadline?: string | null;
+};
+
 export type Task = {
   id: string;
   project_id: string;
   title: string;
   description?: string | null;
   status: TaskStatus;
+  priority: TaskPriority;
   eta_hours: number;
   time_spent_hours: number;
   deadline?: string | null;
@@ -46,6 +61,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getProjects() {
   return request<Project[]>("/projects");
+}
+
+export function getProjectSummaries() {
+  return request<ProjectSummary[]>("/projects/summary");
 }
 
 export function createProject(project: ProjectInput) {

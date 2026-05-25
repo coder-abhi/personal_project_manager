@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import ProjectType, TaskStatus
+from .models import ProjectType, TaskPriority, TaskStatus
 
 
 class ProjectBase(BaseModel):
@@ -21,11 +21,25 @@ class ProjectRead(ProjectBase):
     created_at: datetime
 
 
+class ProjectSummary(ProjectRead):
+    total_tasks: int
+    completed_tasks: int
+    in_progress_tasks: int
+    delayed_tasks: int
+    overdue_tasks: int
+    eta_hours: float
+    time_spent_hours: float
+    completed_hours: float
+    remaining_hours: float
+    next_deadline: datetime | None
+
+
 class TaskBase(BaseModel):
     project_id: str
     title: str = Field(min_length=1, max_length=220)
     description: str | None = None
     status: TaskStatus = TaskStatus.todo
+    priority: TaskPriority = TaskPriority.medium
     eta_hours: float = Field(default=0, ge=0)
     time_spent_hours: float = Field(default=0, ge=0)
     deadline: datetime | None = None
@@ -39,6 +53,7 @@ class TaskUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=220)
     description: str | None = None
     status: TaskStatus | None = None
+    priority: TaskPriority | None = None
     eta_hours: float | None = Field(default=None, ge=0)
     time_spent_hours: float | None = Field(default=None, ge=0)
     deadline: datetime | None = None

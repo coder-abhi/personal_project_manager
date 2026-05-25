@@ -21,6 +21,12 @@ class TaskStatus(str, enum.Enum):
     delayed = "delayed"
 
 
+class TaskPriority(str, enum.Enum):
+    high = "high"
+    medium = "medium"
+    low = "low"
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -48,6 +54,7 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(220), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), default=TaskStatus.todo, nullable=False)
+    priority: Mapped[TaskPriority] = mapped_column(Enum(TaskPriority), default=TaskPriority.medium, nullable=False)
     eta_hours: Mapped[float] = mapped_column(Float, default=0, nullable=False)
     time_spent_hours: Mapped[float] = mapped_column(Float, default=0, nullable=False)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
