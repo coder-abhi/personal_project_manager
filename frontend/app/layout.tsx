@@ -27,6 +27,9 @@ export default function RootLayout({
               <Link href="/timeline" className="rounded-full px-4 py-2 transition hover:bg-white hover:text-gray-950 hover:shadow-sm">
                 Timeline
               </Link>
+              <Link href="/pomodoro" className="rounded-full px-4 py-2 transition hover:bg-white hover:text-gray-950 hover:shadow-sm">
+                Pomodoro
+              </Link>
             </div>
           </div>
         </nav>
