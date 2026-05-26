@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AiStatusBanner } from "@/components/AiStatusBanner";
 import PomodoroCompletionToast from "@/components/PomodoroCompletionToast";
 import "./globals.css";
 
@@ -37,6 +38,7 @@ export default function RootLayout({
             </div>
           </div>
         </nav>
+        <AiStatusBanner />
         {children}
         <PomodoroCompletionToast />
       </body>

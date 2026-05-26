@@ -116,6 +116,12 @@ export type OwnedBookRecommendation = {
   reason: string;
 };
 
+export type AiStatus = {
+  connected: boolean;
+  model: string;
+  message: string;
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -176,6 +182,10 @@ export function matchPomodoroAssignment(note: string, projectIds: string[] = [])
     method: "POST",
     body: JSON.stringify({ note, project_ids: projectIds }),
   });
+}
+
+export function getAiStatus() {
+  return request<AiStatus>("/ai/status");
 }
 
 export function getLibrarySummary() {
