@@ -183,14 +183,14 @@ export default function TimelinePage() {
               <h2 className="text-lg font-semibold text-gray-950">{viewOptions[view].label} Plan</h2>
               <p className="mt-1 text-sm text-gray-500">{visibleTasks.length} visible tasks across {items.length} projects</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex rounded-full border border-gray-200 bg-gray-50 p-1">
+            <div className="flex flex-wrap items-center gap-1">
+              <div className="flex rounded-full border border-gray-200 bg-gray-50 p-0.5">
                 {(Object.keys(viewOptions) as TimelineView[]).map((option) => (
                   <button
                     key={option}
                     type="button"
                     onClick={() => setView(option)}
-                    className={`rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold transition ${
                       view === option ? "bg-gray-950 text-white shadow-sm" : "text-gray-500 hover:text-gray-950"
                     }`}
                   >
@@ -198,19 +198,19 @@ export default function TimelinePage() {
                   </button>
                 ))}
               </div>
-              <label className="flex items-center gap-2 rounded-full border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600">
+              <label className="flex h-7 items-center gap-1.5 rounded-full border border-gray-200 px-3 text-xs font-semibold text-gray-600">
                 <input
                   type="checkbox"
                   checked={activeTodayOnly}
                   onChange={(event) => setActiveTodayOnly(event.target.checked)}
-                  className="h-4 w-4 accent-gray-950"
+                  className="h-3.5 w-3.5 accent-gray-950"
                 />
-                Active today
+                Active
               </label>
               <button
                 type="button"
                 onClick={recalibrateToToday}
-                className="rounded-full border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
+                className="h-6 rounded-full border border-gray-200 px-2.5 text-[11px] font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
               >
                 Today
               </button>
@@ -381,7 +381,7 @@ function TimelineRow({
   const [dragDays, setDragDays] = useState<number | null>(null);
   const dragStartRef = useRef<{ clientX: number; baseDays: number; minDays: number } | null>(null);
   const dragDaysRef = useRef<number | null>(null);
-  const progress = task.etaHours === 0 ? 0 : Math.min(Math.round((task.timeSpentHours / task.etaHours) * 100), 100);
+  const progress = getTaskProgress(task);
   const colors = colorClasses[task.color];
   const percentageTextColor = progress > 45 ? "text-white" : colors.text;
   const firstDate = dates[0];
@@ -558,6 +558,12 @@ function toTimelineTask(task: Task, projectName: string, colorIndex: number): Ti
     deadline: task.deadline ? new Date(task.deadline) : null,
     color: colors[colorIndex % colors.length],
   };
+}
+
+function getTaskProgress(task: TimelineTask) {
+  if (task.status === "done") return 100;
+  if (task.etaHours <= 0) return task.timeSpentHours > 0 ? 100 : 0;
+  return Math.min(Math.round((task.timeSpentHours / task.etaHours) * 100), 100);
 }
 
 function buildTimelineDates(tasks: TimelineTask[], today: Date, visibleDays: number) {

@@ -42,48 +42,50 @@ export function TaskItem({ task, onEdit, onStatusChange, onToggleComplete }: Tas
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") onEdit(task);
       }}
-      className="grid cursor-pointer gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:border-gray-300 hover:shadow-md md:grid-cols-[76px_minmax(0,1.5fr)_0.8fr_0.8fr] md:items-center"
+      className="grid cursor-pointer gap-3 rounded-lg border border-gray-200 bg-white p-3 shadow-sm transition hover:border-gray-300 hover:shadow-md md:grid-cols-[60px_minmax(0,1.5fr)_0.75fr_0.75fr] md:items-center"
     >
-      <div className="flex items-center gap-3 md:block">
+      <div className="flex items-center gap-2 md:block">
         <div
-          className="grid size-16 place-items-center rounded-full"
+          className="grid size-12 place-items-center rounded-full"
           style={{ background: `conic-gradient(${progressTone.fill} ${progress * 3.6}deg, ${progressTone.track} 0deg)` }}
           aria-label={`${progress}% complete`}
         >
-          <div className="grid size-12 place-items-center rounded-full bg-white">
-            <span className={`text-sm font-bold ${progressTone.text}`}>{progress}%</span>
+          <div className="grid size-9 place-items-center rounded-full bg-white">
+            <span className={`text-xs font-bold ${progressTone.text}`}>{progress}%</span>
           </div>
         </div>
-        <p className={`text-xs font-semibold md:mt-2 md:text-center ${progressTone.text}`}>Complete</p>
+        <p className={`text-[11px] font-semibold md:mt-1.5 md:text-center ${progressTone.text}`}>Complete</p>
       </div>
 
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="truncate font-medium text-gray-950">{task.title}</p>
-          <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[task.status]}`}>
+          <p className="truncate text-sm font-medium text-gray-950">{task.title}</p>
+          <span className={`w-fit rounded-full px-2.5 py-0.5 text-xs font-semibold ${statusStyles[task.status]}`}>
             {task.status.replace("_", " ")}
           </span>
-          <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ring-1 ${priorityStyles[task.priority]}`}>
+          <span className={`w-fit rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${priorityStyles[task.priority]}`}>
             {task.priority}
           </span>
         </div>
-        {task.description ? <p className="mt-1 text-sm text-gray-500">{task.description}</p> : null}
-        <p className="mt-2 text-sm text-gray-600">Deadline: {deadline}</p>
-        <p className="mt-1 text-sm text-gray-600">Start: {task.status === "todo" ? "Not started" : startDate}</p>
+        {task.description ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-gray-500">{task.description}</p> : null}
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+          <span>Deadline: {deadline}</span>
+          <span>Start: {task.status === "todo" ? "Not started" : startDate}</span>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 rounded-md bg-gray-50 p-3 text-sm md:grid-cols-1">
+      <div className="grid grid-cols-3 gap-2 rounded-md bg-gray-50 p-2.5 text-sm md:grid-cols-1">
         <p className="text-gray-600">
           <span className="block text-xs uppercase tracking-wide text-gray-400">ETA</span>
-          <span className="font-semibold text-gray-950">{task.eta_hours}h</span>
+          <span className="text-sm font-semibold text-gray-950">{task.eta_hours}h</span>
         </p>
         <p className="text-gray-600">
           <span className="block text-xs uppercase tracking-wide text-gray-400">Spent</span>
-          <span className="font-semibold text-gray-950">{task.time_spent_hours}h</span>
+          <span className="text-sm font-semibold text-gray-950">{task.time_spent_hours}h</span>
         </p>
         <p className="text-gray-600">
           <span className="block text-xs uppercase tracking-wide text-gray-400">Left</span>
-          <span className={overrun > 0 ? "font-semibold text-red-600" : "font-semibold text-gray-950"}>
+          <span className={overrun > 0 ? "text-sm font-semibold text-red-600" : "text-sm font-semibold text-gray-950"}>
             {remainingHours.toFixed(1)}h
           </span>
         </p>
@@ -99,8 +101,8 @@ export function TaskItem({ task, onEdit, onStatusChange, onToggleComplete }: Tas
           onKeyDown={(event) => event.stopPropagation()}
           className={
             task.status === "done"
-              ? "rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
-              : "rounded-md bg-gray-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-gray-800"
+              ? "rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
+              : "rounded-md bg-gray-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-gray-800"
           }
         >
           {task.status === "done" ? "Mark incomplete" : "Mark complete"}
@@ -110,7 +112,7 @@ export function TaskItem({ task, onEdit, onStatusChange, onToggleComplete }: Tas
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
           onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
-          className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm outline-none ring-gray-900/10 focus:ring-4"
+          className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs outline-none ring-gray-900/10 focus:ring-4"
         >
           <option value="todo">Todo</option>
           <option value="in_progress">In progress</option>
