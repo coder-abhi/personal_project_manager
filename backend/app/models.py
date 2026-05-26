@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -23,6 +23,12 @@ class TaskPriority(str, enum.Enum):
     high = "high"
     medium = "medium"
     low = "low"
+
+
+class BookStatus(str, enum.Enum):
+    yet_to_start = "yet_to_start"
+    reading = "reading"
+    read = "read"
 
 
 def utc_now() -> datetime:
@@ -60,3 +66,61 @@ class Task(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     project: Mapped[Project] = relationship(back_populates="tasks")
+
+
+class Book(Base):
+    __tablename__ = "books"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    title: Mapped[str] = mapped_column(String(220), nullable=False)
+    author: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    area: Mapped[str] = mapped_column(String(80), default="General", nullable=False)
+    category: Mapped[str] = mapped_column(String(80), default="General", nullable=False)
+    total_pages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    current_page: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[BookStatus] = mapped_column(Enum(BookStatus), default=BookStatus.yet_to_start, nullable=False)
+    liked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    purchased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    purchase_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    purchase_price: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    chapters: Mapped[list["BookChapter"]] = relationship(
+        back_populates="book",
+        cascade="all, delete-orphan",
+        order_by="BookChapter.position",
+    )
+    reading_logs: Mapped[list["ReadingLog"]] = relationship(
+        back_populates="book",
+        cascade="all, delete-orphan",
+        order_by="ReadingLog.read_at.desc()",
+    )
+
+
+class BookChapter(Base):
+    __tablename__ = "book_chapters"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    book_id: Mapped[str] = mapped_column(ForeignKey("books.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(240), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_liked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    resonated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    book: Mapped[Book] = relationship(back_populates="chapters")
+
+
+class ReadingLog(Base):
+    __tablename__ = "reading_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    book_id: Mapped[str] = mapped_column(ForeignKey("books.id"), nullable=False, index=True)
+    read_on: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    pages_read: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    book: Mapped[Book] = relationship(back_populates="reading_logs")

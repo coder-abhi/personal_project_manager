@@ -1,0 +1,51 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from .. import crud, schemas
+from ..database import get_db
+
+router = APIRouter(prefix="/library", tags=["library"])
+
+
+@router.get("/summary", response_model=schemas.LibrarySummary)
+async def get_library_summary(db: Session = Depends(get_db)):
+    return crud.get_library_summary(db)
+
+
+@router.get("/books", response_model=list[schemas.BookRead])
+async def list_books(db: Session = Depends(get_db)):
+    return crud.list_books(db)
+
+
+@router.post("/books", response_model=schemas.BookRead, status_code=status.HTTP_201_CREATED)
+async def create_book(book: schemas.BookCreate, db: Session = Depends(get_db)):
+    return crud.create_book(db, book)
+
+
+@router.put("/books/{book_id}", response_model=schemas.BookRead)
+async def update_book(book_id: str, book: schemas.BookUpdate, db: Session = Depends(get_db)):
+    db_book = crud.update_book(db, book_id, book)
+    if db_book is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+    return db_book
+
+
+@router.put("/chapters/{chapter_id}", response_model=schemas.ChapterRead)
+async def update_chapter(chapter_id: str, chapter: schemas.ChapterUpdate, db: Session = Depends(get_db)):
+    db_chapter = crud.update_chapter(db, chapter_id, chapter)
+    if db_chapter is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
+    return db_chapter
+
+
+@router.post("/reading-logs", response_model=schemas.ReadingLogRead, status_code=status.HTTP_201_CREATED)
+async def create_reading_log(reading_log: schemas.ReadingLogCreate, db: Session = Depends(get_db)):
+    db_log = crud.create_reading_log(db, reading_log)
+    if db_log is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+    return db_log
+
+
+@router.get("/recommendations", response_model=list[schemas.SuggestedBook])
+async def suggest_books(db: Session = Depends(get_db)):
+    return crud.suggest_books(db)

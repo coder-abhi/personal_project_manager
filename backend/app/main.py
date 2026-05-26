@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
 from .database import Base, engine
-from .routes import project, task
+from .routes import library, project, task
 
 Base.metadata.create_all(bind=engine)
 
@@ -15,18 +15,67 @@ def ensure_sqlite_compatibility() -> None:
         return
 
     inspector = inspect(engine)
-    if "tasks" not in inspector.get_table_names():
-        return
+    table_names = inspector.get_table_names()
 
-    task_columns = {column["name"] for column in inspector.get_columns("tasks")}
+    task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()
+    book_columns = {column["name"] for column in inspector.get_columns("books")} if "books" in table_names else set()
+    chapter_columns = {column["name"] for column in inspector.get_columns("book_chapters")} if "book_chapters" in table_names else set()
+    reading_log_columns = {column["name"] for column in inspector.get_columns("reading_logs")} if "reading_logs" in table_names else set()
 
     with engine.begin() as connection:
-        if "priority" not in task_columns:
+        if task_columns and "priority" not in task_columns:
             connection.execute(text("ALTER TABLE tasks ADD COLUMN priority VARCHAR(6) NOT NULL DEFAULT 'medium'"))
-        if "start_date" not in task_columns:
+        if task_columns and "start_date" not in task_columns:
             connection.execute(text("ALTER TABLE tasks ADD COLUMN start_date DATETIME"))
-        connection.execute(text("UPDATE tasks SET status = 'todo' WHERE status = 'delayed'"))
-        connection.execute(text("UPDATE projects SET type = 'continuous' WHERE type = 'study'"))
+        if task_columns:
+            connection.execute(text("UPDATE tasks SET status = 'todo' WHERE status = 'delayed'"))
+        if "projects" in table_names:
+            connection.execute(text("UPDATE projects SET type = 'continuous' WHERE type = 'study'"))
+
+        if book_columns and "category" not in book_columns:
+            connection.execute(text("ALTER TABLE books ADD COLUMN category VARCHAR(80) NOT NULL DEFAULT 'General'"))
+            if "area" in book_columns:
+                connection.execute(text("UPDATE books SET category = area WHERE area IS NOT NULL AND area != ''"))
+        if book_columns and "area" not in book_columns:
+            connection.execute(text("ALTER TABLE books ADD COLUMN area VARCHAR(80) NOT NULL DEFAULT 'General'"))
+            if "category" in book_columns:
+                connection.execute(text("UPDATE books SET area = category WHERE category IS NOT NULL AND category != ''"))
+        if book_columns and "current_page" not in book_columns:
+            connection.execute(text("ALTER TABLE books ADD COLUMN current_page INTEGER NOT NULL DEFAULT 0"))
+        if book_columns and "purchase_date" not in book_columns:
+            connection.execute(text("ALTER TABLE books ADD COLUMN purchase_date DATETIME"))
+            if "purchased_at" in book_columns:
+                connection.execute(text("UPDATE books SET purchase_date = purchased_at WHERE purchased_at IS NOT NULL"))
+        if book_columns and "purchased_at" not in book_columns:
+            connection.execute(text("ALTER TABLE books ADD COLUMN purchased_at DATETIME"))
+            if "purchase_date" in book_columns:
+                connection.execute(text("UPDATE books SET purchased_at = purchase_date WHERE purchase_date IS NOT NULL"))
+        if book_columns and "notes" not in book_columns:
+            connection.execute(text("ALTER TABLE books ADD COLUMN notes TEXT"))
+
+        if chapter_columns and "resonated" not in chapter_columns:
+            connection.execute(text("ALTER TABLE book_chapters ADD COLUMN resonated BOOLEAN NOT NULL DEFAULT 0"))
+            if "is_liked" in chapter_columns:
+                connection.execute(text("UPDATE book_chapters SET resonated = is_liked WHERE is_liked IS NOT NULL"))
+        if chapter_columns and "is_liked" not in chapter_columns:
+            connection.execute(text("ALTER TABLE book_chapters ADD COLUMN is_liked BOOLEAN NOT NULL DEFAULT 0"))
+            if "resonated" in chapter_columns:
+                connection.execute(text("UPDATE book_chapters SET is_liked = resonated WHERE resonated IS NOT NULL"))
+        if chapter_columns and "created_at" not in chapter_columns:
+            connection.execute(text("ALTER TABLE book_chapters ADD COLUMN created_at DATETIME"))
+
+        if reading_log_columns and "read_at" not in reading_log_columns:
+            connection.execute(text("ALTER TABLE reading_logs ADD COLUMN read_at DATETIME"))
+            if "read_on" in reading_log_columns:
+                connection.execute(text("UPDATE reading_logs SET read_at = read_on WHERE read_on IS NOT NULL"))
+            if "created_at" in reading_log_columns:
+                connection.execute(text("UPDATE reading_logs SET read_at = created_at WHERE read_at IS NULL"))
+        if reading_log_columns and "read_on" not in reading_log_columns:
+            connection.execute(text("ALTER TABLE reading_logs ADD COLUMN read_on DATETIME"))
+            if "read_at" in reading_log_columns:
+                connection.execute(text("UPDATE reading_logs SET read_on = read_at WHERE read_at IS NOT NULL"))
+        if reading_log_columns and "created_at" not in reading_log_columns:
+            connection.execute(text("ALTER TABLE reading_logs ADD COLUMN created_at DATETIME"))
 
 
 ensure_sqlite_compatibility()
@@ -52,6 +101,7 @@ app.add_middleware(
 
 app.include_router(project.router)
 app.include_router(task.router)
+app.include_router(library.router)
 
 
 @app.get("/health")

@@ -30,6 +30,9 @@ export default function RootLayout({
               <Link href="/pomodoro" className="rounded-full px-4 py-2 transition hover:bg-white hover:text-gray-950 hover:shadow-sm">
                 Pomodoro
               </Link>
+              <Link href="/library" className="rounded-full px-4 py-2 transition hover:bg-white hover:text-gray-950 hover:shadow-sm">
+                Library
+              </Link>
             </div>
           </div>
         </nav>

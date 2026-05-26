@@ -1,6 +1,7 @@
 export type ProjectType = "continuous" | "fixed";
 export type TaskStatus = "todo" | "in_progress" | "done";
 export type TaskPriority = "high" | "medium" | "low";
+export type BookStatus = "yet_to_start" | "reading" | "read";
 
 export type Project = {
   id: string;
@@ -38,6 +39,58 @@ export type Task = {
 export type ProjectInput = Pick<Project, "name" | "type">;
 export type TaskInput = Omit<Task, "id" | "created_at">;
 export type TaskUpdate = Partial<Omit<Task, "id" | "project_id" | "created_at">>;
+
+export type BookChapter = {
+  id: string;
+  book_id: string;
+  title: string;
+  position: number;
+  resonated: boolean;
+};
+
+export type Book = {
+  id: string;
+  title: string;
+  author?: string | null;
+  category: string;
+  total_pages: number;
+  status: BookStatus;
+  liked: boolean;
+  purchase_date?: string | null;
+  purchase_price?: number | null;
+  created_at: string;
+  chapters: BookChapter[];
+};
+
+export type BookInput = Omit<Book, "id" | "created_at" | "chapters">;
+export type BookUpdate = Partial<BookInput>;
+
+export type ReadingLogInput = {
+  book_id: string;
+  pages_read: number;
+  read_at?: string | null;
+  note?: string | null;
+};
+
+export type LibrarySummary = {
+  total_books: number;
+  read_books: number;
+  liked_books: number;
+  yet_to_start_books: number;
+  reading_books: number;
+  pages_today: number;
+  pages_this_week: number;
+  current_categories: string[];
+  daywise_pages: { date: string; pages: number }[];
+  categories: { category: string; books: number }[];
+};
+
+export type SuggestedBook = {
+  title: string;
+  author?: string | null;
+  category: string;
+  reason: string;
+};
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -90,4 +143,44 @@ export function updateTask(taskId: string, task: TaskUpdate) {
     method: "PUT",
     body: JSON.stringify(task),
   });
+}
+
+export function getLibrarySummary() {
+  return request<LibrarySummary>("/library/summary");
+}
+
+export function getBooks() {
+  return request<Book[]>("/library/books");
+}
+
+export function createBook(book: BookInput) {
+  return request<Book>("/library/books", {
+    method: "POST",
+    body: JSON.stringify(book),
+  });
+}
+
+export function updateBook(bookId: string, book: BookUpdate) {
+  return request<Book>(`/library/books/${bookId}`, {
+    method: "PUT",
+    body: JSON.stringify(book),
+  });
+}
+
+export function updateChapter(chapterId: string, resonated: boolean) {
+  return request<BookChapter>(`/library/chapters/${chapterId}`, {
+    method: "PUT",
+    body: JSON.stringify({ resonated }),
+  });
+}
+
+export function createReadingLog(readingLog: ReadingLogInput) {
+  return request<{ id: string } & ReadingLogInput>("/library/reading-logs", {
+    method: "POST",
+    body: JSON.stringify(readingLog),
+  });
+}
+
+export function getLibraryRecommendations() {
+  return request<SuggestedBook[]>("/library/recommendations");
 }
