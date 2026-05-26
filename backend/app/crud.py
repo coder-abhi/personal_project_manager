@@ -124,6 +124,13 @@ def update_task(db: Session, task_id: str, task: schemas.TaskUpdate) -> models.T
 
 def create_book(db: Session, book: schemas.BookCreate) -> models.Book:
     book_data = book.model_dump()
+    metadata = resolve_book_metadata(
+        title=book.title,
+        author=book.author,
+        category=book.category,
+    )
+    book_data["author"] = metadata["author"]
+    book_data["category"] = metadata["category"]
     book_data["area"] = book_data["category"]
     book_data["purchased_at"] = book_data["purchase_date"]
     book_data["purchase_price"] = book_data["purchase_price"] or 0
@@ -131,7 +138,7 @@ def create_book(db: Session, book: schemas.BookCreate) -> models.Book:
     db.add(db_book)
     db.flush()
 
-    chapter_titles = generate_chapter_titles(book.title, book.author)
+    chapter_titles = metadata["chapters"]
     for index, title in enumerate(chapter_titles, start=1):
         db.add(models.BookChapter(book_id=db_book.id, title=title, position=index))
 
@@ -259,25 +266,64 @@ def suggest_books(db: Session) -> list[schemas.SuggestedBook]:
     return [schemas.SuggestedBook(**suggestion) for suggestion in suggestions]
 
 
-def generate_chapter_titles(title: str, author: str | None) -> list[str]:
-    fallback = [
-        "Opening ideas",
-        "Core concepts",
-        "Practice and examples",
-        "Key arguments",
-        "Closing takeaways",
-    ]
-    prompt = (
-        "Return only JSON with a chapters array of chapter titles for this exact book. "
-        f"Book: {title}. Author: {author or 'unknown'}."
-    )
-    data = _call_openai_json(prompt, max_tokens=700)
-    chapters = data.get("chapters") if isinstance(data, dict) else None
-    if not isinstance(chapters, list):
-        return fallback
+def resolve_book_metadata(title: str, author: str | None, category: str | None) -> dict[str, str | None | list[str]]:
+    provided_author = _clean_text(author)
+    provided_category = _clean_text(category)
+    metadata = {
+        "author": provided_author,
+        "category": provided_category or "Uncategorized",
+        "chapters": [],
+    }
+    data = fetch_book_metadata(title=title, author=provided_author, category=provided_category)
+    if not data:
+        return metadata
 
-    cleaned = [str(chapter).strip()[:240] for chapter in chapters if str(chapter).strip()]
-    return cleaned[:40] or fallback
+    confidence = _as_float(data.get("confidence"))
+    if data.get("identified") is not True or confidence < 0.82:
+        return metadata
+
+    if not provided_author:
+        model_author = _clean_text(data.get("author"))
+        if model_author:
+            metadata["author"] = model_author
+
+    if not provided_category:
+        model_category = _clean_text(data.get("category"))
+        if model_category:
+            metadata["category"] = model_category
+
+    chapters = data.get("chapters")
+    if data.get("chapters_confident") is True and isinstance(chapters, list):
+        metadata["chapters"] = [str(chapter).strip()[:240] for chapter in chapters if str(chapter).strip()][:80]
+
+    return metadata
+
+
+def fetch_book_metadata(title: str, author: str | None, category: str | None) -> dict:
+    prompt = (
+        "Identify this exact published book using only the user-provided context. "
+        "Do not guess. If the title is ambiguous, incomplete, or you are not confident, set identified=false. "
+        "Return only JSON with: identified boolean, confidence number from 0 to 1, author string or null, "
+        "category string or null, chapters_confident boolean, chapters array. "
+        "Only include chapter titles when you are confident they are real chapter titles from that exact edition/work; otherwise chapters_confident=false and chapters=[]. "
+        "Do not invent a corrected title, author, category, or chapter. "
+        f"Context: {json.dumps({'title': title, 'author': author, 'category': category})}"
+    )
+    return _call_openai_json(prompt, max_tokens=1200)
+
+
+def _clean_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _as_float(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def generate_book_suggestions(books: list[models.Book]) -> list[dict[str, str | None]]:

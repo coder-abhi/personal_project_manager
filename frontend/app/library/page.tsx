@@ -30,7 +30,7 @@ type BookDraft = {
 const emptyDraft: BookDraft = {
   title: "",
   author: "",
-  category: "Software Development",
+  category: "",
   totalPages: "",
   status: "yet_to_start",
   liked: false,
@@ -51,6 +51,7 @@ const statusClasses: Record<BookStatus, string> = {
 };
 
 const categoryOptions = [
+  "",
   "Software Development",
   "Technical",
   "Philosophy",
@@ -109,7 +110,7 @@ export default function LibraryPage() {
     const payload: BookInput = {
       title: draft.title.trim(),
       author: draft.author.trim() || null,
-      category: draft.category.trim() || "General",
+      category: draft.category.trim(),
       total_pages: Number(draft.totalPages) || 0,
       status: draft.status,
       liked: draft.liked,
@@ -122,7 +123,7 @@ export default function LibraryPage() {
       setError(null);
       const created = await createBook(payload);
       await loadLibrary();
-      setExpandedBookId(created.id);
+      setExpandedBookId(null);
       setDraft(emptyDraft);
       setIsAddOpen(false);
     } catch (err) {
@@ -297,7 +298,7 @@ export default function LibraryPage() {
             <div className="mt-8 rounded-lg border border-dashed border-stone-300 bg-white/70 p-10 text-center">
               <h3 className="text-xl font-semibold text-stone-950">Your shelf is ready</h3>
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-stone-600">
-                Add your first book. The API will generate chapters so you can mark the ideas that stay with you.
+                Add your first book. When OpenAI can identify it confidently, chapters will appear inside the row.
               </p>
               <button
                 type="button"
@@ -309,30 +310,58 @@ export default function LibraryPage() {
             </div>
           ) : null}
 
-          <div className="mt-6 grid gap-4">
+          <div className="mt-6 overflow-hidden rounded-lg border border-stone-200 bg-white/85 shadow-sm">
+            {!isLoading && books.length > 0 ? (
+              <div className="hidden grid-cols-[1fr_180px_140px_130px] gap-4 border-b border-stone-100 bg-stone-50/80 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-stone-500 md:grid">
+                <span>Book</span>
+                <span>Author</span>
+                <span>Status</span>
+                <span className="text-right">Actions</span>
+              </div>
+            ) : null}
             {books.map((book) => {
               const isExpanded = expandedBookId === book.id;
               const resonantCount = book.chapters.filter((chapter) => chapter.resonated).length;
               return (
-                <article key={book.id} className="rounded-lg border border-stone-200 bg-white/85 p-5 shadow-sm">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <article key={book.id} className="border-b border-stone-100 last:border-0">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedBookId(isExpanded ? null : book.id)}
+                    className="grid w-full gap-3 px-5 py-4 text-left transition hover:bg-stone-50/80 md:grid-cols-[1fr_180px_140px_130px] md:items-center md:gap-4"
+                  >
                     <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClasses[book.status]}`}>
-                          {statusLabels[book.status]}
-                        </span>
-                        {book.liked ? <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">Liked</span> : null}
-                      </div>
-                      <h3 className="mt-3 text-2xl font-semibold text-stone-950">{book.title}</h3>
-                      <p className="mt-1 text-sm text-stone-600">
-                        {[book.author, book.category, book.total_pages ? `${book.total_pages} pages` : null].filter(Boolean).join(" · ")}
-                      </p>
-                      <p className="mt-2 text-sm text-stone-500">
-                        Bought {book.purchase_date ? formatDate(book.purchase_date) : "date not logged"}
-                        {typeof book.purchase_price === "number" ? ` for ${formatCurrency(book.purchase_price)}` : ""}
+                      <h3 className="text-base font-semibold text-stone-950">{book.title}</h3>
+                      <p className="mt-1 text-xs text-stone-500 md:hidden">
+                        {[book.author || "Author unknown", statusLabels[book.status]].join(" · ")}
                       </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <p className="hidden text-sm text-stone-600 md:block">{book.author || "Author unknown"}</p>
+                    <div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClasses[book.status]}`}>
+                        {statusLabels[book.status]}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-start gap-2 md:justify-end">
+                      {book.liked ? <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">Liked</span> : null}
+                      <span className="rounded-full border border-stone-200 px-3 py-1 text-xs font-semibold text-stone-600">
+                        {isExpanded ? "Close" : "Open"}
+                      </span>
+                    </div>
+                  </button>
+
+                  {isExpanded ? (
+                    <div className="border-t border-stone-100 bg-white px-5 pb-5 pt-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <p className="text-sm text-stone-600">
+                            {[book.category || "Uncategorized", book.total_pages ? `${book.total_pages} pages` : null].filter(Boolean).join(" · ")}
+                          </p>
+                          <p className="mt-2 text-sm text-stone-500">
+                            Bought {book.purchase_date ? formatDate(book.purchase_date) : "date not logged"}
+                            {typeof book.purchase_price === "number" ? ` for ${formatCurrency(book.purchase_price)}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
                       {(Object.keys(statusLabels) as BookStatus[]).map((status) => (
                         <button
                           key={status}
@@ -352,53 +381,55 @@ export default function LibraryPage() {
                       >
                         {book.liked ? "Unlike" : "Like"}
                       </button>
-                    </div>
-                  </div>
+                        </div>
+                      </div>
 
-                  <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-                    <div className="flex items-center gap-2">
-                      <input
-                        inputMode="numeric"
-                        value={pagesByBook[book.id] ?? ""}
-                        onChange={(event) => setPagesByBook((current) => ({ ...current, [book.id]: event.target.value }))}
-                        placeholder="Pages read today"
-                        className="w-full rounded-md border border-stone-300 px-4 py-3 text-sm outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4 md:max-w-xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => logPages(book)}
-                        className="rounded-full bg-teal-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
-                      >
-                        Log
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setExpandedBookId(isExpanded ? null : book.id)}
-                      className="rounded-full border border-stone-300 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
-                    >
-                      {isExpanded ? "Hide chapters" : `Chapters (${resonantCount}/${book.chapters.length})`}
-                    </button>
-                  </div>
-
-                  {isExpanded ? (
-                    <div className="mt-5 grid gap-2 border-t border-stone-100 pt-5 md:grid-cols-2">
-                      {book.chapters.map((chapter) => (
-                        <label key={chapter.id} className="flex items-start gap-3 rounded-md border border-stone-200 bg-stone-50/70 p-3">
+                      <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+                        <div className="flex items-center gap-2">
                           <input
-                            type="checkbox"
-                            checked={chapter.resonated}
-                            onChange={(event) => toggleChapter(book.id, chapter.id, event.target.checked)}
-                            className="mt-1 h-4 w-4 accent-teal-600"
+                            inputMode="numeric"
+                            value={pagesByBook[book.id] ?? ""}
+                            onChange={(event) => setPagesByBook((current) => ({ ...current, [book.id]: event.target.value }))}
+                            placeholder="Pages read today"
+                            className="w-full rounded-md border border-stone-300 px-4 py-3 text-sm outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4 md:max-w-xs"
                           />
-                          <span>
-                            <span className="block text-sm font-semibold text-stone-950">
-                              {chapter.position}. {chapter.title}
-                            </span>
-                            <span className="mt-1 block text-xs text-stone-500">Mark this if the chapter resonated.</span>
-                          </span>
-                        </label>
-                      ))}
+                          <button
+                            type="button"
+                            onClick={() => logPages(book)}
+                            className="rounded-full bg-teal-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
+                          >
+                            Log
+                          </button>
+                        </div>
+                        <p className="text-sm font-semibold text-stone-600">
+                          Chapters {resonantCount}/{book.chapters.length}
+                        </p>
+                      </div>
+
+                      {book.chapters.length > 0 ? (
+                        <div className="mt-5 grid gap-2 border-t border-stone-100 pt-5 md:grid-cols-2">
+                          {book.chapters.map((chapter) => (
+                            <label key={chapter.id} className="flex items-start gap-3 rounded-md border border-stone-200 bg-stone-50/70 p-3">
+                              <input
+                                type="checkbox"
+                                checked={chapter.resonated}
+                                onChange={(event) => toggleChapter(book.id, chapter.id, event.target.checked)}
+                                className="mt-1 h-4 w-4 accent-teal-600"
+                              />
+                              <span>
+                                <span className="block text-sm font-semibold text-stone-950">
+                                  {chapter.position}. {chapter.title}
+                                </span>
+                                <span className="mt-1 block text-xs text-stone-500">Mark this if the chapter resonated.</span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-5 rounded-md bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                          No confident chapter list is stored for this book yet.
+                        </p>
+                      )}
                     </div>
                   ) : null}
                 </article>
@@ -498,7 +529,9 @@ export default function LibraryPage() {
                   className="field-input"
                 >
                   {categoryOptions.map((category) => (
-                    <option key={category}>{category}</option>
+                    <option key={category} value={category}>
+                      {category || "Let OpenAI identify"}
+                    </option>
                   ))}
                 </select>
               </Field>
@@ -555,7 +588,7 @@ export default function LibraryPage() {
             </label>
 
             <div className="mt-6 rounded-md bg-teal-50 p-4 text-sm leading-6 text-teal-900">
-              Saving calls the backend, which asks OpenAI for chapter titles and stores them with the book.
+              Saving asks OpenAI only for missing metadata and exact chapters. If confidence is low, the book is saved without invented details.
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
@@ -570,7 +603,7 @@ export default function LibraryPage() {
                 disabled={isSaving || !draft.title.trim()}
                 className="rounded-full bg-stone-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300"
               >
-                {isSaving ? "Generating chapters..." : "Add Book"}
+                {isSaving ? "Checking book..." : "Add Book"}
               </button>
             </div>
           </form>

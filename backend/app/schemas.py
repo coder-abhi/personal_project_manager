@@ -80,7 +80,7 @@ class ChapterRead(BaseModel):
 class BookBase(BaseModel):
     title: str = Field(min_length=1, max_length=220)
     author: str | None = Field(default=None, max_length=160)
-    category: str = Field(default="General", min_length=1, max_length=80)
+    category: str = Field(default="", max_length=80)
     total_pages: int = Field(default=0, ge=0)
     status: BookStatus = BookStatus.yet_to_start
     liked: bool = False
