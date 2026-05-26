@@ -54,6 +54,7 @@ export type Book = {
   author?: string | null;
   category: string;
   total_pages: number;
+  current_page: number;
   status: BookStatus;
   liked: boolean;
   rating?: number | null;
@@ -65,12 +66,14 @@ export type Book = {
   chapters: BookChapter[];
 };
 
-export type BookInput = Omit<Book, "id" | "created_at" | "chapters" | "pages_read" | "pages_remaining">;
+export type BookInput = Omit<Book, "id" | "created_at" | "chapters" | "current_page" | "pages_read" | "pages_remaining">;
 export type BookUpdate = Partial<BookInput>;
 
 export type ReadingLogInput = {
   book_id: string;
-  pages_read: number;
+  pages_read?: number;
+  start_page?: number;
+  end_page?: number;
   read_at?: string | null;
   note?: string | null;
 };

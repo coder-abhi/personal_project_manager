@@ -78,6 +78,10 @@ def ensure_sqlite_compatibility() -> None:
                 connection.execute(text("UPDATE reading_logs SET read_on = read_at WHERE read_at IS NOT NULL"))
         if reading_log_columns and "created_at" not in reading_log_columns:
             connection.execute(text("ALTER TABLE reading_logs ADD COLUMN created_at DATETIME"))
+        if reading_log_columns and "start_page" not in reading_log_columns:
+            connection.execute(text("ALTER TABLE reading_logs ADD COLUMN start_page INTEGER"))
+        if reading_log_columns and "end_page" not in reading_log_columns:
+            connection.execute(text("ALTER TABLE reading_logs ADD COLUMN end_page INTEGER"))
 
 
 ensure_sqlite_compatibility()

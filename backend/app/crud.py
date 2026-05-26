@@ -273,16 +273,27 @@ def enrich_book_metadata(db: Session, book_id: str, replace_chapters: bool = Fal
 
 
 def create_reading_log(db: Session, reading_log: schemas.ReadingLogCreate) -> models.ReadingLog | None:
-    if get_book(db, reading_log.book_id) is None:
+    db_book = get_book(db, reading_log.book_id)
+    if db_book is None:
         return None
 
     data = reading_log.model_dump()
+    if data["start_page"] is not None and data["end_page"] is not None:
+        data["pages_read"] = data["end_page"] - data["start_page"] + 1
+    if not data["pages_read"] or data["pages_read"] < 1:
+        return None
     if data["read_at"] is None:
         data["read_at"] = datetime.now(timezone.utc)
     data["read_on"] = data["read_at"]
 
     db_log = models.ReadingLog(**data)
     db.add(db_log)
+    if data["end_page"] is not None:
+        db_book.current_page = max(db_book.current_page, data["end_page"])
+        if db_book.total_pages and db_book.current_page >= db_book.total_pages:
+            db_book.status = models.BookStatus.read
+        elif db_book.status == models.BookStatus.yet_to_start:
+            db_book.status = models.BookStatus.reading
     db.commit()
     db.refresh(db_log)
     return db_log

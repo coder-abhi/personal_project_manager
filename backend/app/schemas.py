@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .models import BookStatus, ProjectType, TaskPriority, TaskStatus
 
@@ -110,6 +110,7 @@ class BookRead(BookBase):
 
     id: str
     created_at: datetime
+    current_page: int
     pages_read: int
     pages_remaining: int
     chapters: list[ChapterRead] = []
@@ -125,15 +126,29 @@ class ChapterCreate(BaseModel):
 
 class ReadingLogCreate(BaseModel):
     book_id: str
-    pages_read: int = Field(ge=1)
+    pages_read: int | None = Field(default=None, ge=1)
+    start_page: int | None = Field(default=None, ge=1)
+    end_page: int | None = Field(default=None, ge=1)
     read_at: datetime | None = None
     note: str | None = None
+
+    @model_validator(mode="after")
+    def validate_page_range(self):
+        has_range = self.start_page is not None or self.end_page is not None
+        if has_range and (self.start_page is None or self.end_page is None):
+            raise ValueError("Start and end page are both required")
+        if self.start_page is not None and self.end_page is not None and self.end_page < self.start_page:
+            raise ValueError("End page must be greater than or equal to start page")
+        if self.pages_read is None and not has_range:
+            raise ValueError("Pages read or a page range is required")
+        return self
 
 
 class ReadingLogRead(ReadingLogCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    pages_read: int
     read_at: datetime
 
 

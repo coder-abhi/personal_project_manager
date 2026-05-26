@@ -127,6 +127,8 @@ class ReadingLog(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     book_id: Mapped[str] = mapped_column(ForeignKey("books.id"), nullable=False, index=True)
     read_on: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    start_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    end_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pages_read: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)

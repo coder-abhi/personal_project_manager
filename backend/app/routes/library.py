@@ -70,9 +70,12 @@ async def delete_chapter(chapter_id: str, db: Session = Depends(get_db)):
 
 @router.post("/reading-logs", response_model=schemas.ReadingLogRead, status_code=status.HTTP_201_CREATED)
 async def create_reading_log(reading_log: schemas.ReadingLogCreate, db: Session = Depends(get_db)):
+    if crud.get_book(db, reading_log.book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
     db_log = crud.create_reading_log(db, reading_log)
     if db_log is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reading log")
     return db_log
 
 

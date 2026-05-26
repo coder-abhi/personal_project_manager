@@ -10,7 +10,6 @@ import {
   getBooks,
   getLibraryRecommendations,
   getLibrarySummary,
-  getNextReadingBooks,
   regenerateChapters,
   updateBook,
   updateChapter,
@@ -18,7 +17,6 @@ import {
   type BookInput,
   type BookStatus,
   type LibrarySummary,
-  type OwnedBookRecommendation,
   type SuggestedBook,
 } from "@/lib/api";
 
@@ -31,6 +29,13 @@ type BookDraft = {
   liked: boolean;
   purchaseDate: string;
   purchasePrice: string;
+};
+
+type ProgressDraft = {
+  bookId: string;
+  startPage: string;
+  endPage: string;
+  readDate: string;
 };
 
 const emptyDraft: BookDraft = {
@@ -68,16 +73,29 @@ const categoryOptions = [
   "General",
 ];
 
+function getTodayDateValue() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export default function LibraryPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [summary, setSummary] = useState<LibrarySummary | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedBook[]>([]);
-  const [nextReadingBooks, setNextReadingBooks] = useState<OwnedBookRecommendation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLogging, setIsLogging] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [draft, setDraft] = useState<BookDraft>(emptyDraft);
-  const [pagesByBook, setPagesByBook] = useState<Record<string, string>>({});
+  const [progressDraft, setProgressDraft] = useState<ProgressDraft>({
+    bookId: "",
+    startPage: "",
+    endPage: "",
+    readDate: getTodayDateValue(),
+  });
   const [chapterByBook, setChapterByBook] = useState<Record<string, string>>({});
   const [queuedBookIds, setQueuedBookIds] = useState<Record<string, boolean>>({});
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null);
@@ -85,16 +103,26 @@ export default function LibraryPage() {
 
   async function loadLibrary() {
     setError(null);
-    const [nextBooks, nextSummary, nextSuggestions, nextOwnedReads] = await Promise.all([
+    const [nextBooks, nextSummary, nextSuggestions] = await Promise.all([
       getBooks(),
       getLibrarySummary(),
       getLibraryRecommendations(),
-      getNextReadingBooks(),
     ]);
     setBooks(nextBooks);
     setSummary(nextSummary);
     setSuggestions(nextSuggestions);
-    setNextReadingBooks(nextOwnedReads);
+    setProgressDraft((current) => {
+      if (current.bookId && nextBooks.some((book) => book.id === current.bookId)) {
+        return current;
+      }
+
+      const nextBook = nextBooks.find((book) => book.status === "reading") ?? nextBooks[0];
+      return {
+        ...current,
+        bookId: nextBook?.id ?? "",
+        startPage: nextBook ? String(getNextStartPage(nextBook)) : "",
+      };
+    });
   }
 
   useEffect(() => {
@@ -104,6 +132,10 @@ export default function LibraryPage() {
   }, []);
 
   const readingBooks = useMemo(() => books.filter((book) => book.status === "reading"), [books]);
+  const selectedProgressBook = useMemo(
+    () => books.find((book) => book.id === progressDraft.bookId) ?? null,
+    [books, progressDraft.bookId],
+  );
   const recentPurchases = useMemo(
     () =>
       [...books]
@@ -113,11 +145,16 @@ export default function LibraryPage() {
     [books],
   );
   const monthlyPages = summary?.monthly_pages ?? [];
-  const maxMonthlyPages = Math.max(1, ...monthlyPages.map((month) => month.pages));
+  const daywisePages = summary?.daywise_pages ?? [];
+  const momentumPages = Math.round(daywisePages.reduce((sum, day) => sum + day.pages, 0) / Math.max(1, daywisePages.length));
+  const maxMonthlyPages = Math.max(1, momentumPages, ...monthlyPages.map((month) => month.pages));
+  const yAxisTicks = [1, 0.75, 0.5, 0.25, 0].map((ratio) => Math.round(maxMonthlyPages * ratio));
+  const getChartY = (pages: number) => 92 - (pages / maxMonthlyPages) * 84;
+  const momentumY = getChartY(momentumPages);
   const linePoints = monthlyPages
     .map((month, index) => {
       const x = monthlyPages.length <= 1 ? 0 : (index / (monthlyPages.length - 1)) * 100;
-      const y = 100 - (month.pages / maxMonthlyPages) * 84 - 8;
+      const y = getChartY(month.pages);
       return `${x},${y}`;
     })
     .join(" ");
@@ -192,16 +229,37 @@ export default function LibraryPage() {
     }
   }
 
-  async function logPages(book: Book) {
-    const pages = Number(pagesByBook[book.id]);
-    if (!pages || pages < 1) return;
+  function getNextStartPage(book: Book) {
+    return Math.max(book.current_page || book.pages_read || 0, 0) + 1;
+  }
+
+  async function logProgress(event?: FormEvent<HTMLFormElement>, fallbackBook?: Book) {
+    event?.preventDefault();
+    const book = fallbackBook ?? selectedProgressBook;
+    if (!book || isLogging) return;
+
+    const startPage = Number(progressDraft.startPage || getNextStartPage(book));
+    const endPage = Number(progressDraft.endPage);
+    if (!startPage || !endPage || startPage < 1 || endPage < startPage) {
+      setError("Choose a valid start and end page.");
+      return;
+    }
 
     try {
-      await createReadingLog({ book_id: book.id, pages_read: pages });
-      setPagesByBook((current) => ({ ...current, [book.id]: "" }));
+      setIsLogging(true);
+      setError(null);
+      await createReadingLog({
+        book_id: book.id,
+        start_page: startPage,
+        end_page: endPage,
+        read_at: new Date(`${progressDraft.readDate || getTodayDateValue()}T12:00:00`).toISOString(),
+      });
+      setProgressDraft((current) => ({ ...current, bookId: book.id, startPage: String(endPage + 1), endPage: "" }));
       await loadLibrary();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not log reading");
+    } finally {
+      setIsLogging(false);
     }
   }
 
@@ -329,24 +387,52 @@ export default function LibraryPage() {
           </div>
 
           <div className="mt-6 rounded-lg border border-stone-200 bg-white/80 p-5 shadow-sm">
-            <div className="h-64">
-              <svg className="h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Pages read by month">
-                <polyline points="0,92 100,92" fill="none" stroke="#e7e5e4" strokeWidth="0.6" />
-                <polyline points="0,50 100,50" fill="none" stroke="#e7e5e4" strokeWidth="0.4" />
-                <polyline points={linePoints} fill="none" stroke="#0d9488" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-                {monthlyPages.map((month, index) => {
-                  const x = monthlyPages.length <= 1 ? 0 : (index / (monthlyPages.length - 1)) * 100;
-                  const y = 100 - (month.pages / maxMonthlyPages) * 84 - 8;
-                  return <circle key={month.month} cx={x} cy={y} r="1.7" fill="#f97316" vectorEffect="non-scaling-stroke" />;
-                })}
-              </svg>
-              <div className="mt-3 grid grid-cols-6 gap-2 md:grid-cols-12">
-                {monthlyPages.map((month) => (
-                  <div key={month.month} className="text-center">
-                    <p className="text-xs font-semibold text-stone-950">{month.pages}</p>
-                    <p className="mt-1 text-[11px] text-stone-500">{formatMonth(month.month)}</p>
-                  </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-stone-700">Pages logged</p>
+            </div>
+            <div className="mt-4 grid grid-cols-[3rem_1fr] gap-3">
+              <div className="relative h-64">
+                {yAxisTicks.map((pages, index) => (
+                  <span
+                    key={`${pages}-${index}`}
+                    className="absolute right-0 -translate-y-1/2 text-xs font-medium text-stone-500"
+                    style={{ top: `${getChartY(pages)}%` }}
+                  >
+                    {pages}
+                  </span>
                 ))}
+                <span
+                  className="absolute right-0 -translate-y-1/2 text-xs font-semibold text-orange-500"
+                  style={{ top: `${momentumY}%` }}
+                >
+                  {momentumPages}
+                </span>
+              </div>
+              <div>
+                <div className="h-64">
+                  <svg className="h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Pages read by month">
+                    {yAxisTicks.map((pages, index) => {
+                      const y = getChartY(pages);
+                      return <polyline key={`${pages}-${index}`} points={`0,${y} 100,${y}`} fill="none" stroke="#e7e5e4" strokeWidth="0.45" vectorEffect="non-scaling-stroke" />;
+                    })}
+                    <polyline
+                      points={`0,${momentumY} 100,${momentumY}`}
+                      fill="none"
+                      stroke="#f97316"
+                      strokeDasharray="5 5"
+                      strokeWidth="1.5"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <polyline points={linePoints} fill="none" stroke="#0d9488" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                  </svg>
+                </div>
+                <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: `repeat(${monthlyPages.length || 1}, minmax(0, 1fr))` }}>
+                  {monthlyPages.map((month) => (
+                    <p key={month.month} className="text-center text-[11px] font-medium text-stone-500">
+                      {formatMonth(month.month)}
+                    </p>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -358,13 +444,6 @@ export default function LibraryPage() {
               <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Ongoing books</p>
               <h2 className="mt-2 text-3xl font-semibold text-stone-950">Reading list</h2>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsAddOpen(true)}
-              className="w-fit rounded-full bg-stone-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-800"
-            >
-              Add Book
-            </button>
           </div>
 
           {isLoading ? <p className="mt-8 rounded-lg bg-white/80 p-6 text-sm text-stone-500">Loading library...</p> : null}
@@ -467,20 +546,25 @@ export default function LibraryPage() {
                       </div>
 
                       <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-                        <div className="flex items-center gap-2">
-                          <input
-                            inputMode="numeric"
-                            value={pagesByBook[book.id] ?? ""}
-                            onChange={(event) => setPagesByBook((current) => ({ ...current, [book.id]: event.target.value }))}
-                            placeholder="Pages read today"
-                            className="w-full rounded-md border border-stone-300 px-4 py-3 text-sm outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4 md:max-w-xs"
-                          />
+                        <div className="flex flex-wrap items-center gap-2 text-sm text-stone-600">
+                          <span className="rounded-md bg-stone-50 px-3 py-2 font-semibold text-stone-800">
+                            Page {book.current_page || book.pages_read || 0}
+                          </span>
+                          <span>{book.pages_read} pages logged</span>
+                          <span>{book.pages_remaining} remaining</span>
                           <button
                             type="button"
-                            onClick={() => logPages(book)}
-                            className="rounded-full bg-teal-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
+                            onClick={() =>
+                              setProgressDraft((current) => ({
+                                ...current,
+                                bookId: book.id,
+                                startPage: String(getNextStartPage(book)),
+                                endPage: "",
+                              }))
+                            }
+                            className="rounded-full border border-teal-200 px-4 py-2 text-xs font-semibold text-teal-700 transition hover:bg-teal-50"
                           >
-                            Log
+                            Log progress
                           </button>
                         </div>
                         <p className="text-sm font-semibold text-stone-600">
@@ -563,25 +647,80 @@ export default function LibraryPage() {
 
         <aside className="space-y-5">
           <section className="rounded-lg border border-stone-200 bg-white/80 p-5 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">AI reading queue</p>
-            <h2 className="mt-2 text-2xl font-semibold text-stone-950">Next 3 owned books</h2>
-            <div className="mt-4 space-y-3">
-              {nextReadingBooks.map((book) => (
-                <div key={book.book_id} className="rounded-md bg-stone-50 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-stone-950">{book.title}</p>
-                      <p className="mt-1 text-xs text-stone-500">{[book.author, book.category].filter(Boolean).join(" · ")}</p>
-                    </div>
-                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClasses[book.status]}`}>
-                      {statusLabels[book.status]}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-stone-600">{book.reason}</p>
+            <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Reading log</p>
+            <h2 className="mt-2 text-2xl font-semibold text-stone-950">Log progress</h2>
+            <form onSubmit={logProgress} className="mt-4 space-y-4">
+              <Field label="Book">
+                <select
+                  value={progressDraft.bookId}
+                  onChange={(event) => {
+                    const nextBook = books.find((book) => book.id === event.target.value);
+                    setProgressDraft((current) => ({
+                      ...current,
+                      bookId: event.target.value,
+                      startPage: nextBook ? String(getNextStartPage(nextBook)) : "",
+                      endPage: "",
+                    }));
+                  }}
+                  className="field-input"
+                  disabled={books.length === 0}
+                >
+                  {books.length === 0 ? <option value="">No books yet</option> : null}
+                  {books.map((book) => (
+                    <option key={book.id} value={book.id}>
+                      {book.title}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Date">
+                <input
+                  type="date"
+                  value={progressDraft.readDate}
+                  onChange={(event) => setProgressDraft((current) => ({ ...current, readDate: event.target.value }))}
+                  className="field-input"
+                />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Start page">
+                  <input
+                    inputMode="numeric"
+                    value={progressDraft.startPage || (selectedProgressBook ? String(getNextStartPage(selectedProgressBook)) : "")}
+                    onChange={(event) => setProgressDraft((current) => ({ ...current, startPage: event.target.value }))}
+                    className="field-input"
+                    disabled={!selectedProgressBook}
+                  />
+                </Field>
+                <Field label="End page">
+                  <input
+                    inputMode="numeric"
+                    value={progressDraft.endPage}
+                    onChange={(event) => setProgressDraft((current) => ({ ...current, endPage: event.target.value }))}
+                    className="field-input"
+                    disabled={!selectedProgressBook}
+                  />
+                </Field>
+              </div>
+
+              {selectedProgressBook ? (
+                <div className="rounded-md bg-stone-50 p-3 text-sm leading-6 text-stone-600">
+                  <p className="font-semibold text-stone-950">{selectedProgressBook.title}</p>
+                  <p>
+                    Page {selectedProgressBook.current_page || selectedProgressBook.pages_read || 0}
+                    {selectedProgressBook.total_pages ? ` of ${selectedProgressBook.total_pages}` : ""} logged.
+                  </p>
                 </div>
-              ))}
-              {nextReadingBooks.length === 0 ? <p className="text-sm text-stone-500">No owned unread books to recommend right now.</p> : null}
-            </div>
+              ) : null}
+
+              <button
+                disabled={!selectedProgressBook || !progressDraft.endPage || isLogging}
+                className="w-full rounded-full bg-teal-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-stone-300"
+              >
+                {isLogging ? "Logging..." : "Log Progress"}
+              </button>
+            </form>
           </section>
 
           <section className="rounded-lg border border-stone-200 bg-white/80 p-5 shadow-sm">
