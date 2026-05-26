@@ -10,6 +10,7 @@ import {
   getBooks,
   getLibraryRecommendations,
   getLibrarySummary,
+  getNextReadingBooks,
   regenerateChapters,
   updateBook,
   updateChapter,
@@ -17,6 +18,7 @@ import {
   type BookInput,
   type BookStatus,
   type LibrarySummary,
+  type OwnedBookRecommendation,
   type SuggestedBook,
 } from "@/lib/api";
 
@@ -70,6 +72,7 @@ export default function LibraryPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [summary, setSummary] = useState<LibrarySummary | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedBook[]>([]);
+  const [nextReadingBooks, setNextReadingBooks] = useState<OwnedBookRecommendation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -82,14 +85,16 @@ export default function LibraryPage() {
 
   async function loadLibrary() {
     setError(null);
-    const [nextBooks, nextSummary, nextSuggestions] = await Promise.all([
+    const [nextBooks, nextSummary, nextSuggestions, nextOwnedReads] = await Promise.all([
       getBooks(),
       getLibrarySummary(),
       getLibraryRecommendations(),
+      getNextReadingBooks(),
     ]);
     setBooks(nextBooks);
     setSummary(nextSummary);
     setSuggestions(nextSuggestions);
+    setNextReadingBooks(nextOwnedReads);
   }
 
   useEffect(() => {
@@ -99,7 +104,6 @@ export default function LibraryPage() {
   }, []);
 
   const readingBooks = useMemo(() => books.filter((book) => book.status === "reading"), [books]);
-  const unreadBooks = useMemo(() => books.filter((book) => book.status !== "read"), [books]);
   const recentPurchases = useMemo(
     () =>
       [...books]
@@ -559,16 +563,24 @@ export default function LibraryPage() {
 
         <aside className="space-y-5">
           <section className="rounded-lg border border-stone-200 bg-white/80 p-5 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Remaining</p>
-            <h2 className="mt-2 text-2xl font-semibold text-stone-950">{unreadBooks.length} books waiting</h2>
+            <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">AI reading queue</p>
+            <h2 className="mt-2 text-2xl font-semibold text-stone-950">Next 3 owned books</h2>
             <div className="mt-4 space-y-3">
-              {unreadBooks.slice(0, 5).map((book) => (
-                <div key={book.id} className="border-b border-stone-100 pb-3 last:border-0 last:pb-0">
-                  <p className="text-sm font-semibold text-stone-950">{book.title}</p>
-                  <p className="mt-1 text-xs text-stone-500">{book.category}</p>
+              {nextReadingBooks.map((book) => (
+                <div key={book.book_id} className="rounded-md bg-stone-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-stone-950">{book.title}</p>
+                      <p className="mt-1 text-xs text-stone-500">{[book.author, book.category].filter(Boolean).join(" · ")}</p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClasses[book.status]}`}>
+                      {statusLabels[book.status]}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-stone-600">{book.reason}</p>
                 </div>
               ))}
-              {unreadBooks.length === 0 ? <p className="text-sm text-stone-500">No unread books right now.</p> : null}
+              {nextReadingBooks.length === 0 ? <p className="text-sm text-stone-500">No owned unread books to recommend right now.</p> : null}
             </div>
           </section>
 

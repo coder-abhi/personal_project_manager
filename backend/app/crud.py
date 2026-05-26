@@ -12,6 +12,8 @@ from .prompts import (
     BOOK_METADATA_USER_PROMPT,
     BOOK_RECOMMENDATIONS_SYSTEM_PROMPT,
     BOOK_RECOMMENDATIONS_USER_PROMPT,
+    OWNED_BOOK_NEXT_READ_SYSTEM_PROMPT,
+    OWNED_BOOK_NEXT_READ_USER_PROMPT,
 )
 
 try:
@@ -365,6 +367,12 @@ def suggest_books(db: Session) -> list[schemas.SuggestedBook]:
     return [schemas.SuggestedBook(**suggestion) for suggestion in suggestions]
 
 
+def suggest_next_owned_books(db: Session) -> list[schemas.OwnedBookRecommendation]:
+    candidates = [book for book in list_books(db) if book.status != models.BookStatus.read]
+    recommendations = generate_next_owned_book_suggestions(candidates)
+    return [schemas.OwnedBookRecommendation(**recommendation) for recommendation in recommendations]
+
+
 def resolve_book_metadata(title: str, author: str | None, category: str | None) -> dict[str, str | None | list[str]]:
     provided_author = _clean_text(author)
     provided_category = _clean_text(category)
@@ -460,6 +468,50 @@ def generate_book_suggestions(books: list[models.Book]) -> list[dict[str, str | 
     return cleaned or fallback
 
 
+def generate_next_owned_book_suggestions(books: list[models.Book]) -> list[dict[str, str | None]]:
+    fallback = _fallback_owned_book_suggestions(books)
+    if not books:
+        return fallback
+
+    candidates = [
+        {
+            "book_id": book.id,
+            "title": book.title,
+            "author": book.author,
+            "category": book.category,
+            "status": book.status.value,
+            "liked": book.liked,
+            "rating": book.rating,
+            "pages_read": book.pages_read,
+            "pages_remaining": book.pages_remaining,
+            "purchase_date": book.purchase_date.isoformat() if book.purchase_date else None,
+        }
+        for book in books[:30]
+    ]
+    prompt = f"{OWNED_BOOK_NEXT_READ_USER_PROMPT} Candidates: {json.dumps(candidates)}"
+    data = _call_openai_json(OWNED_BOOK_NEXT_READ_SYSTEM_PROMPT, prompt, max_tokens=900)
+    items = data.get("recommendations") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return fallback
+
+    books_by_id = {book.id: book for book in books}
+    cleaned = []
+    seen_ids = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        book_id = str(item.get("book_id") or "")
+        if book_id in seen_ids or book_id not in books_by_id:
+            continue
+        seen_ids.add(book_id)
+        book = books_by_id[book_id]
+        cleaned.append(_owned_book_recommendation(book, str(item.get("reason") or "Good next pick from your purchased shelf.")))
+        if len(cleaned) == 3:
+            break
+
+    return cleaned or fallback
+
+
 def _call_openai_json(system_prompt: str, user_prompt: str, max_tokens: int) -> dict:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -528,3 +580,30 @@ def _fallback_suggestions(books: list[models.Book]) -> list[dict[str, str | None
             "reason": "Good bridge material for connecting human behavior, strategy, and technical decision-making.",
         },
     ]
+
+
+def _fallback_owned_book_suggestions(books: list[models.Book]) -> list[dict[str, str | None]]:
+    ranked = sorted(
+        books,
+        key=lambda book: (
+            book.status != models.BookStatus.reading,
+            -(book.rating or 0),
+            not book.liked,
+            _as_aware(book.purchase_date or book.created_at),
+        ),
+    )
+    return [
+        _owned_book_recommendation(book, "A strong next choice from your purchased shelf based on status, rating, and recency.")
+        for book in ranked[:3]
+    ]
+
+
+def _owned_book_recommendation(book: models.Book, reason: str) -> dict[str, str | None]:
+    return {
+        "book_id": book.id,
+        "title": book.title,
+        "author": book.author,
+        "category": book.category,
+        "status": book.status.value,
+        "reason": reason[:320],
+    }

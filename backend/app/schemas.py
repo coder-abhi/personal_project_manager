@@ -156,3 +156,12 @@ class SuggestedBook(BaseModel):
     author: str | None = None
     category: str
     reason: str
+
+
+class OwnedBookRecommendation(BaseModel):
+    book_id: str
+    title: str
+    author: str | None = None
+    category: str
+    status: BookStatus
+    reason: str

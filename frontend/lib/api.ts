@@ -96,6 +96,15 @@ export type SuggestedBook = {
   reason: string;
 };
 
+export type OwnedBookRecommendation = {
+  book_id: string;
+  title: string;
+  author?: string | null;
+  category: string;
+  status: BookStatus;
+  reason: string;
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -214,4 +223,8 @@ export function createReadingLog(readingLog: ReadingLogInput) {
 
 export function getLibraryRecommendations() {
   return request<SuggestedBook[]>("/library/recommendations");
+}
+
+export function getNextReadingBooks() {
+  return request<OwnedBookRecommendation[]>("/library/next-reading");
 }

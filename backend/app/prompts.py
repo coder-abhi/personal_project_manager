@@ -24,3 +24,14 @@ BOOK_RECOMMENDATIONS_USER_PROMPT = (
     "Suggest 3 books to buy next from this reading history. Return only JSON with a suggestions array. "
     "Each suggestion must have title, author, category, and reason."
 )
+
+OWNED_BOOK_NEXT_READ_SYSTEM_PROMPT = (
+    "You are a careful reading prioritization assistant. Recommend only from the user's already-owned books "
+    "provided in the candidate list. Do not suggest any book outside that list. Reply with valid JSON only."
+)
+
+OWNED_BOOK_NEXT_READ_USER_PROMPT = (
+    "Choose the next 3 already-purchased books the user should read from the candidate list. "
+    "Return only JSON with a recommendations array. Each item must include book_id and reason. "
+    "Use only book_id values present in the candidate list."
+)

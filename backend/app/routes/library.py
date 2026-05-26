@@ -81,6 +81,11 @@ async def suggest_books(db: Session = Depends(get_db)):
     return crud.suggest_books(db)
 
 
+@router.get("/next-reading", response_model=list[schemas.OwnedBookRecommendation])
+async def suggest_next_owned_books(db: Session = Depends(get_db)):
+    return crud.suggest_next_owned_books(db)
+
+
 def enrich_book_in_background(book_id: str, replace_chapters: bool = False) -> None:
     db = SessionLocal()
     try:

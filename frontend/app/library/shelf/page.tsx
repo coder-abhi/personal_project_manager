@@ -4,6 +4,14 @@ import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { getBooks, updateBook, updateChapter, type Book, type BookStatus } from "@/lib/api";
 
+type EditDraft = {
+  title: string;
+  author: string;
+  category: string;
+  status: BookStatus;
+  purchasePrice: string;
+};
+
 const statusLabels: Record<BookStatus, string> = {
   yet_to_start: "Yet to start",
   reading: "Reading",
@@ -19,6 +27,8 @@ const statusClasses: Record<BookStatus, string> = {
 export default function ShelfPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null);
+  const [editingBookId, setEditingBookId] = useState<string | null>(null);
+  const [editDrafts, setEditDrafts] = useState<Record<string, EditDraft>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +60,34 @@ export default function ShelfPage() {
       setBooks(previous);
       setError(err instanceof Error ? err.message : "Could not update book");
     }
+  }
+
+  function openEdit(book: Book) {
+    setEditingBookId(book.id);
+    setEditDrafts((current) => ({
+      ...current,
+      [book.id]: {
+        title: book.title,
+        author: book.author || "",
+        category: book.category || "",
+        status: book.status,
+        purchasePrice: typeof book.purchase_price === "number" ? String(book.purchase_price) : "",
+      },
+    }));
+  }
+
+  async function saveEdit(book: Book) {
+    const draft = editDrafts[book.id];
+    if (!draft?.title.trim()) return;
+
+    await patchBook(book, {
+      title: draft.title.trim(),
+      author: draft.author.trim() || null,
+      category: draft.category.trim() || "Uncategorized",
+      status: draft.status,
+      purchase_price: draft.purchasePrice ? Number(draft.purchasePrice) : null,
+    });
+    setEditingBookId(null);
   }
 
   async function toggleChapter(bookId: string, chapterId: string, resonated: boolean) {
@@ -119,6 +157,14 @@ export default function ShelfPage() {
                 {books.map((book) => {
                   const resonated = book.chapters.filter((chapter) => chapter.resonated).length;
                   const isExpanded = expandedBookId === book.id;
+                  const isEditing = editingBookId === book.id;
+                  const editDraft = editDrafts[book.id] ?? {
+                    title: book.title,
+                    author: book.author || "",
+                    category: book.category || "",
+                    status: book.status,
+                    purchasePrice: typeof book.purchase_price === "number" ? String(book.purchase_price) : "",
+                  };
                   return (
                     <Fragment key={book.id}>
                       <tr
@@ -148,9 +194,110 @@ export default function ShelfPage() {
                           <td colSpan={9} className="border-t border-stone-100 bg-stone-50/60 px-4 py-5">
                             <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
                               <section className="rounded-lg border border-stone-200 bg-white p-4">
-                                <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Book details</p>
-                                <h2 className="mt-2 text-2xl font-semibold text-stone-950">{book.title}</h2>
-                                <p className="mt-2 text-sm text-stone-600">{book.author || "Author unknown"}</p>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Book details</p>
+                                    <h2 className="mt-2 text-2xl font-semibold text-stone-950">{book.title}</h2>
+                                    <p className="mt-2 text-sm text-stone-600">{book.author || "Author unknown"}</p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      isEditing ? setEditingBookId(null) : openEdit(book);
+                                    }}
+                                    className="rounded-full border border-stone-200 px-3 py-1.5 text-xs font-semibold text-stone-700 transition hover:bg-stone-50"
+                                  >
+                                    {isEditing ? "Cancel" : "Edit details"}
+                                  </button>
+                                </div>
+
+                                {isEditing ? (
+                                  <div className="mt-5 grid gap-3">
+                                    <label className="text-sm font-semibold text-stone-700">
+                                      Book name
+                                      <input
+                                        value={editDraft.title}
+                                        onChange={(event) =>
+                                          setEditDrafts((current) => ({
+                                            ...current,
+                                            [book.id]: { ...editDraft, title: event.target.value },
+                                          }))
+                                        }
+                                        className="mt-2 w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
+                                      />
+                                    </label>
+                                    <label className="text-sm font-semibold text-stone-700">
+                                      Category
+                                      <input
+                                        value={editDraft.category}
+                                        onChange={(event) =>
+                                          setEditDrafts((current) => ({
+                                            ...current,
+                                            [book.id]: { ...editDraft, category: event.target.value },
+                                          }))
+                                        }
+                                        className="mt-2 w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
+                                      />
+                                    </label>
+                                    <label className="text-sm font-semibold text-stone-700">
+                                      Author
+                                      <input
+                                        value={editDraft.author}
+                                        onChange={(event) =>
+                                          setEditDrafts((current) => ({
+                                            ...current,
+                                            [book.id]: { ...editDraft, author: event.target.value },
+                                          }))
+                                        }
+                                        className="mt-2 w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
+                                      />
+                                    </label>
+                                    <label className="text-sm font-semibold text-stone-700">
+                                      Status
+                                      <select
+                                        value={editDraft.status}
+                                        onChange={(event) =>
+                                          setEditDrafts((current) => ({
+                                            ...current,
+                                            [book.id]: { ...editDraft, status: event.target.value as BookStatus },
+                                          }))
+                                        }
+                                        className="mt-2 w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
+                                      >
+                                        {(Object.keys(statusLabels) as BookStatus[]).map((status) => (
+                                          <option key={status} value={status}>
+                                            {statusLabels[status]}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                    <label className="text-sm font-semibold text-stone-700">
+                                      Price
+                                      <input
+                                        inputMode="decimal"
+                                        value={editDraft.purchasePrice}
+                                        onChange={(event) =>
+                                          setEditDrafts((current) => ({
+                                            ...current,
+                                            [book.id]: { ...editDraft, purchasePrice: event.target.value },
+                                          }))
+                                        }
+                                        className="mt-2 w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
+                                      />
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        saveEdit(book);
+                                      }}
+                                      className="rounded-full bg-stone-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-stone-800"
+                                    >
+                                      Save details
+                                    </button>
+                                  </div>
+                                ) : null}
 
                                 <div className="mt-5 grid grid-cols-2 gap-3">
                                   <DetailMetric label="Pages read" value={book.pages_read.toString()} />
