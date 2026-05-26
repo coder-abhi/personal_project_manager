@@ -84,6 +84,7 @@ class BookBase(BaseModel):
     total_pages: int = Field(default=0, ge=0)
     status: BookStatus = BookStatus.yet_to_start
     liked: bool = False
+    rating: int | None = Field(default=None, ge=1, le=10)
     purchase_date: datetime | None = None
     purchase_price: float | None = Field(default=None, ge=0)
 
@@ -99,6 +100,7 @@ class BookUpdate(BaseModel):
     total_pages: int | None = Field(default=None, ge=0)
     status: BookStatus | None = None
     liked: bool | None = None
+    rating: int | None = Field(default=None, ge=1, le=10)
     purchase_date: datetime | None = None
     purchase_price: float | None = Field(default=None, ge=0)
 
@@ -108,11 +110,17 @@ class BookRead(BookBase):
 
     id: str
     created_at: datetime
+    pages_read: int
+    pages_remaining: int
     chapters: list[ChapterRead] = []
 
 
 class ChapterUpdate(BaseModel):
     resonated: bool
+
+
+class ChapterCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
 
 
 class ReadingLogCreate(BaseModel):
@@ -139,6 +147,7 @@ class LibrarySummary(BaseModel):
     pages_this_week: int
     current_categories: list[str]
     daywise_pages: list[dict[str, int | str]]
+    monthly_pages: list[dict[str, int | str]]
     categories: list[dict[str, int | str]]
 
 

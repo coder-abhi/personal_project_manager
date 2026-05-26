@@ -1,13 +1,27 @@
 import json
+import logging
 import os
 from datetime import datetime, timedelta, timezone
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from . import models, schemas
+from .prompts import (
+    BOOK_METADATA_SYSTEM_PROMPT,
+    BOOK_METADATA_USER_PROMPT,
+    BOOK_RECOMMENDATIONS_SYSTEM_PROMPT,
+    BOOK_RECOMMENDATIONS_USER_PROMPT,
+)
+
+try:
+    from openai import OpenAI, OpenAIError
+except ImportError:  # pragma: no cover - depends on local environment setup
+    OpenAI = None
+    OpenAIError = Exception
+
+
+logger = logging.getLogger(__name__)
 
 
 def create_project(db: Session, project: schemas.ProjectCreate) -> models.Project:
@@ -124,24 +138,13 @@ def update_task(db: Session, task_id: str, task: schemas.TaskUpdate) -> models.T
 
 def create_book(db: Session, book: schemas.BookCreate) -> models.Book:
     book_data = book.model_dump()
-    metadata = resolve_book_metadata(
-        title=book.title,
-        author=book.author,
-        category=book.category,
-    )
-    book_data["author"] = metadata["author"]
-    book_data["category"] = metadata["category"]
+    book_data["author"] = _clean_text(book.author)
+    book_data["category"] = _clean_text(book.category) or "Uncategorized"
     book_data["area"] = book_data["category"]
     book_data["purchased_at"] = book_data["purchase_date"]
     book_data["purchase_price"] = book_data["purchase_price"] or 0
     db_book = models.Book(**book_data)
     db.add(db_book)
-    db.flush()
-
-    chapter_titles = metadata["chapters"]
-    for index, title in enumerate(chapter_titles, start=1):
-        db.add(models.BookChapter(book_id=db_book.id, title=title, position=index))
-
     db.commit()
     db.refresh(db_book)
     return db_book
@@ -198,6 +201,75 @@ def update_chapter(db: Session, chapter_id: str, chapter: schemas.ChapterUpdate)
     return db_chapter
 
 
+def create_chapter(db: Session, book_id: str, chapter: schemas.ChapterCreate) -> models.BookChapter | None:
+    if get_book(db, book_id) is None:
+        return None
+
+    last_position = db.scalar(
+        select(models.BookChapter.position)
+        .where(models.BookChapter.book_id == book_id)
+        .order_by(models.BookChapter.position.desc())
+        .limit(1)
+    )
+    db_chapter = models.BookChapter(book_id=book_id, title=chapter.title.strip(), position=(last_position or 0) + 1)
+    db.add(db_chapter)
+    db.commit()
+    db.refresh(db_chapter)
+    return db_chapter
+
+
+def delete_chapter(db: Session, chapter_id: str) -> bool:
+    db_chapter = db.get(models.BookChapter, chapter_id)
+    if db_chapter is None:
+        return False
+
+    db.delete(db_chapter)
+    db.commit()
+    return True
+
+
+def delete_book_chapters(db: Session, book_id: str) -> bool:
+    db_book = get_book(db, book_id)
+    if db_book is None:
+        return False
+
+    for chapter in list(db_book.chapters):
+        db.delete(chapter)
+    db.commit()
+    return True
+
+
+def enrich_book_metadata(db: Session, book_id: str, replace_chapters: bool = False) -> models.Book | None:
+    db_book = get_book(db, book_id)
+    if db_book is None:
+        return None
+
+    metadata = resolve_book_metadata(
+        title=db_book.title,
+        author=db_book.author,
+        category=db_book.category if db_book.category != "Uncategorized" else None,
+    )
+    if metadata["title"]:
+        db_book.title = str(metadata["title"])
+    if metadata["author"]:
+        db_book.author = str(metadata["author"])
+    if (not db_book.category or db_book.category == "Uncategorized") and metadata["category"]:
+        db_book.category = str(metadata["category"])
+        db_book.area = db_book.category
+
+    chapter_titles = metadata["chapters"]
+    if chapter_titles and (replace_chapters or not db_book.chapters):
+        for chapter in list(db_book.chapters):
+            db.delete(chapter)
+        db.flush()
+        for index, title in enumerate(chapter_titles, start=1):
+            db.add(models.BookChapter(book_id=db_book.id, title=str(title), position=index))
+
+    db.commit()
+    db.refresh(db_book)
+    return db_book
+
+
 def create_reading_log(db: Session, reading_log: schemas.ReadingLogCreate) -> models.ReadingLog | None:
     if get_book(db, reading_log.book_id) is None:
         return None
@@ -236,6 +308,19 @@ def get_library_summary(db: Session) -> schemas.LibrarySummary:
             }
         )
 
+    monthly_pages = []
+    for year, month in _last_12_months(now):
+        monthly_pages.append(
+            {
+                "month": f"{year}-{month:02d}",
+                "pages": sum(
+                    log.pages_read
+                    for log in logs
+                    if _as_aware(log.read_at).year == year and _as_aware(log.read_at).month == month
+                ),
+            }
+        )
+
     category_counts: dict[str, int] = {}
     for book in books:
         category_counts[book.category] = category_counts.get(book.category, 0) + 1
@@ -250,8 +335,22 @@ def get_library_summary(db: Session) -> schemas.LibrarySummary:
         pages_this_week=sum(log.pages_read for log in logs if _as_aware(log.read_at).date() >= week_start),
         current_categories=active_categories,
         daywise_pages=daywise_pages,
+        monthly_pages=monthly_pages,
         categories=[{"category": category, "books": count} for category, count in sorted(category_counts.items())],
     )
+
+
+def _last_12_months(value: datetime) -> list[tuple[int, int]]:
+    months = []
+    year = value.year
+    month = value.month
+    for _ in range(12):
+        months.append((year, month))
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    return list(reversed(months))
 
 
 def suggest_books(db: Session) -> list[schemas.SuggestedBook]:
@@ -270,6 +369,7 @@ def resolve_book_metadata(title: str, author: str | None, category: str | None) 
     provided_author = _clean_text(author)
     provided_category = _clean_text(category)
     metadata = {
+        "title": None,
         "author": provided_author,
         "category": provided_category or "Uncategorized",
         "chapters": [],
@@ -282,10 +382,13 @@ def resolve_book_metadata(title: str, author: str | None, category: str | None) 
     if data.get("identified") is not True or confidence < 0.82:
         return metadata
 
-    if not provided_author:
-        model_author = _clean_text(data.get("author"))
-        if model_author:
-            metadata["author"] = model_author
+    corrected_title = _clean_text(data.get("corrected_title"))
+    if corrected_title:
+        metadata["title"] = corrected_title
+
+    corrected_author = _clean_text(data.get("corrected_author"))
+    if corrected_author:
+        metadata["author"] = corrected_author
 
     if not provided_category:
         model_category = _clean_text(data.get("category"))
@@ -300,16 +403,8 @@ def resolve_book_metadata(title: str, author: str | None, category: str | None) 
 
 
 def fetch_book_metadata(title: str, author: str | None, category: str | None) -> dict:
-    prompt = (
-        "Identify this exact published book using only the user-provided context. "
-        "Do not guess. If the title is ambiguous, incomplete, or you are not confident, set identified=false. "
-        "Return only JSON with: identified boolean, confidence number from 0 to 1, author string or null, "
-        "category string or null, chapters_confident boolean, chapters array. "
-        "Only include chapter titles when you are confident they are real chapter titles from that exact edition/work; otherwise chapters_confident=false and chapters=[]. "
-        "Do not invent a corrected title, author, category, or chapter. "
-        f"Context: {json.dumps({'title': title, 'author': author, 'category': category})}"
-    )
-    return _call_openai_json(prompt, max_tokens=1200)
+    prompt = f"{BOOK_METADATA_USER_PROMPT} Context: {json.dumps({'title': title, 'author': author, 'category': category})}"
+    return _call_openai_json(BOOK_METADATA_SYSTEM_PROMPT, prompt, max_tokens=1200)
 
 
 def _clean_text(value: object) -> str | None:
@@ -342,11 +437,9 @@ def generate_book_suggestions(books: list[models.Book]) -> list[dict[str, str | 
         for book in books[:12]
     ]
     prompt = (
-        "Suggest 3 books to buy next from this reading history. Return only JSON with a suggestions array. "
-        "Each suggestion must have title, author, category, and reason. History: "
-        f"{json.dumps(recent_context)}"
+        f"{BOOK_RECOMMENDATIONS_USER_PROMPT} History: {json.dumps(recent_context)}"
     )
-    data = _call_openai_json(prompt, max_tokens=900)
+    data = _call_openai_json(BOOK_RECOMMENDATIONS_SYSTEM_PROMPT, prompt, max_tokens=900)
     suggestions = data.get("suggestions") if isinstance(data, dict) else None
     if not isinstance(suggestions, list):
         return fallback
@@ -367,52 +460,49 @@ def generate_book_suggestions(books: list[models.Book]) -> list[dict[str, str | 
     return cleaned or fallback
 
 
-def _call_openai_json(prompt: str, max_tokens: int) -> dict:
+def _call_openai_json(system_prompt: str, user_prompt: str, max_tokens: int) -> dict:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
+        logger.warning("OPENAI_API_KEY is not set. Skipping OpenAI LLM call.")
         return {}
 
-    payload = {
-        "model": os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
-        "input": [
-            {
-                "role": "system",
-                "content": "You are a precise literary metadata assistant. Reply with valid JSON only.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        "text": {"format": {"type": "json_object"}},
-        "max_output_tokens": max_tokens,
-    }
-    request = Request(
-        "https://api.openai.com/v1/responses",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+    if OpenAI is None:
+        logger.warning("OpenAI Python SDK is not installed. Run `pip install -r backend/requirements.txt`.")
+        return {}
+
+    client = OpenAI(api_key=api_key)
 
     try:
-        with urlopen(request, timeout=20) as response:
-            raw = json.loads(response.read().decode("utf-8"))
-    except (OSError, URLError, json.JSONDecodeError):
+        response = client.responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            text={"format": {"type": "json_object"}},
+            max_output_tokens=max_tokens,
+        )
+    except (OpenAIError, OSError) as err:
+        logger.warning("OpenAI LLM call failed: %s", err)
         return {}
 
-    text = raw.get("output_text")
-    if not text:
-        text_parts = []
-        for output in raw.get("output", []):
-            for content in output.get("content", []):
-                if content.get("type") == "output_text":
-                    text_parts.append(content.get("text", ""))
-        text = "".join(text_parts)
+    text = getattr(response, "output_text", None) or _extract_response_text(response)
 
     try:
         return json.loads(text)
     except (TypeError, json.JSONDecodeError):
+        logger.warning("OpenAI LLM returned non-JSON content.")
         return {}
+
+
+def _extract_response_text(response: object) -> str:
+    response_dict = response.model_dump() if hasattr(response, "model_dump") else {}
+    text_parts = []
+    for output in response_dict.get("output", []):
+        for content in output.get("content", []):
+            if content.get("type") == "output_text":
+                text_parts.append(content.get("text", ""))
+    return "".join(text_parts)
 
 
 def _fallback_suggestions(books: list[models.Book]) -> list[dict[str, str | None]]:

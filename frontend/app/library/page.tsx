@@ -2,11 +2,15 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  addChapter,
   createBook,
   createReadingLog,
+  deleteBookChapters,
+  deleteChapter,
   getBooks,
   getLibraryRecommendations,
   getLibrarySummary,
+  regenerateChapters,
   updateBook,
   updateChapter,
   type Book,
@@ -71,6 +75,8 @@ export default function LibraryPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [draft, setDraft] = useState<BookDraft>(emptyDraft);
   const [pagesByBook, setPagesByBook] = useState<Record<string, string>>({});
+  const [chapterByBook, setChapterByBook] = useState<Record<string, string>>({});
+  const [queuedBookIds, setQueuedBookIds] = useState<Record<string, boolean>>({});
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,6 +98,7 @@ export default function LibraryPage() {
       .finally(() => setIsLoading(false));
   }, []);
 
+  const readingBooks = useMemo(() => books.filter((book) => book.status === "reading"), [books]);
   const unreadBooks = useMemo(() => books.filter((book) => book.status !== "read"), [books]);
   const recentPurchases = useMemo(
     () =>
@@ -101,7 +108,15 @@ export default function LibraryPage() {
         .slice(0, 4),
     [books],
   );
-  const maxDailyPages = Math.max(1, ...(summary?.daywise_pages.map((day) => day.pages) ?? [1]));
+  const monthlyPages = summary?.monthly_pages ?? [];
+  const maxMonthlyPages = Math.max(1, ...monthlyPages.map((month) => month.pages));
+  const linePoints = monthlyPages
+    .map((month, index) => {
+      const x = monthlyPages.length <= 1 ? 0 : (index / (monthlyPages.length - 1)) * 100;
+      const y = 100 - (month.pages / maxMonthlyPages) * 84 - 8;
+      return `${x},${y}`;
+    })
+    .join(" ");
 
   async function handleCreateBook(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,6 +139,12 @@ export default function LibraryPage() {
       const created = await createBook(payload);
       await loadLibrary();
       setExpandedBookId(null);
+      setQueuedBookIds((current) => ({ ...current, [created.id]: true }));
+      window.setTimeout(() => {
+        loadLibrary()
+          .catch((err: Error) => setError(err.message))
+          .finally(() => setQueuedBookIds((current) => ({ ...current, [created.id]: false })));
+      }, 6000);
       setDraft(emptyDraft);
       setIsAddOpen(false);
     } catch (err) {
@@ -180,6 +201,52 @@ export default function LibraryPage() {
     }
   }
 
+  async function handleAddChapter(book: Book) {
+    const title = chapterByBook[book.id]?.trim();
+    if (!title) return;
+
+    try {
+      await addChapter(book.id, title);
+      setChapterByBook((current) => ({ ...current, [book.id]: "" }));
+      await loadLibrary();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add chapter");
+    }
+  }
+
+  async function handleRegenerateChapters(book: Book) {
+    try {
+      setQueuedBookIds((current) => ({ ...current, [book.id]: true }));
+      await regenerateChapters(book.id);
+      window.setTimeout(() => {
+        loadLibrary()
+          .catch((err: Error) => setError(err.message))
+          .finally(() => setQueuedBookIds((current) => ({ ...current, [book.id]: false })));
+      }, 7000);
+    } catch (err) {
+      setQueuedBookIds((current) => ({ ...current, [book.id]: false }));
+      setError(err instanceof Error ? err.message : "Could not regenerate chapters");
+    }
+  }
+
+  async function handleDeleteChapter(chapterId: string) {
+    try {
+      await deleteChapter(chapterId);
+      await loadLibrary();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete chapter");
+    }
+  }
+
+  async function handleDeleteAllChapters(book: Book) {
+    try {
+      await deleteBookChapters(book.id);
+      await loadLibrary();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete chapters");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f6f3] text-stone-950">
       <section className="relative overflow-hidden border-b border-stone-200">
@@ -206,7 +273,7 @@ export default function LibraryPage() {
                 Add Book
               </button>
               <a
-                href="#reading-list"
+                href="/library/shelf"
                 className="rounded-full border border-stone-300 bg-white/70 px-6 py-3 text-sm font-semibold text-stone-800 shadow-sm transition hover:border-stone-400 hover:bg-white"
               >
                 View Shelf
@@ -250,7 +317,7 @@ export default function LibraryPage() {
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Reading rhythm</p>
-              <h2 className="mt-2 text-3xl font-semibold text-stone-950">Daily pages</h2>
+              <h2 className="mt-2 text-3xl font-semibold text-stone-950">Monthly pages</h2>
             </div>
             <p className="text-sm text-stone-600">
               Current areas: {summary?.current_categories.length ? summary.current_categories.join(", ") : "No active category yet"}
@@ -258,21 +325,25 @@ export default function LibraryPage() {
           </div>
 
           <div className="mt-6 rounded-lg border border-stone-200 bg-white/80 p-5 shadow-sm">
-            <div className="flex h-56 items-end gap-3">
-              {(summary?.daywise_pages ?? []).map((day) => (
-                <div key={day.date} className="flex h-full flex-1 flex-col justify-end gap-2">
-                  <div className="flex flex-1 items-end rounded-md bg-stone-100">
-                    <div
-                      className="w-full rounded-md bg-gradient-to-t from-teal-600 to-orange-300"
-                      style={{ height: `${Math.max(7, (day.pages / maxDailyPages) * 100)}%` }}
-                    />
+            <div className="h-64">
+              <svg className="h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Pages read by month">
+                <polyline points="0,92 100,92" fill="none" stroke="#e7e5e4" strokeWidth="0.6" />
+                <polyline points="0,50 100,50" fill="none" stroke="#e7e5e4" strokeWidth="0.4" />
+                <polyline points={linePoints} fill="none" stroke="#0d9488" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+                {monthlyPages.map((month, index) => {
+                  const x = monthlyPages.length <= 1 ? 0 : (index / (monthlyPages.length - 1)) * 100;
+                  const y = 100 - (month.pages / maxMonthlyPages) * 84 - 8;
+                  return <circle key={month.month} cx={x} cy={y} r="1.7" fill="#f97316" vectorEffect="non-scaling-stroke" />;
+                })}
+              </svg>
+              <div className="mt-3 grid grid-cols-6 gap-2 md:grid-cols-12">
+                {monthlyPages.map((month) => (
+                  <div key={month.month} className="text-center">
+                    <p className="text-xs font-semibold text-stone-950">{month.pages}</p>
+                    <p className="mt-1 text-[11px] text-stone-500">{formatMonth(month.month)}</p>
                   </div>
-                  <div className="text-center">
-                    <p className="text-xs font-semibold text-stone-950">{day.pages}</p>
-                    <p className="mt-1 text-[11px] text-stone-500">{formatShortDay(day.date)}</p>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
@@ -280,7 +351,7 @@ export default function LibraryPage() {
 
           <div id="reading-list" className="mt-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Owned books</p>
+              <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Ongoing books</p>
               <h2 className="mt-2 text-3xl font-semibold text-stone-950">Reading list</h2>
             </div>
             <button
@@ -311,7 +382,7 @@ export default function LibraryPage() {
           ) : null}
 
           <div className="mt-6 overflow-hidden rounded-lg border border-stone-200 bg-white/85 shadow-sm">
-            {!isLoading && books.length > 0 ? (
+            {!isLoading && readingBooks.length > 0 ? (
               <div className="hidden grid-cols-[1fr_180px_140px_130px] gap-4 border-b border-stone-100 bg-stone-50/80 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-stone-500 md:grid">
                 <span>Book</span>
                 <span>Author</span>
@@ -319,7 +390,13 @@ export default function LibraryPage() {
                 <span className="text-right">Actions</span>
               </div>
             ) : null}
-            {books.map((book) => {
+            {!isLoading && books.length > 0 && readingBooks.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-base font-semibold text-stone-950">No books currently in progress</p>
+                <p className="mt-2 text-sm text-stone-500">Mark a book as Reading to show it here.</p>
+              </div>
+            ) : null}
+            {readingBooks.map((book) => {
               const isExpanded = expandedBookId === book.id;
               const resonantCount = book.chapters.filter((chapter) => chapter.resonated).length;
               return (
@@ -343,6 +420,7 @@ export default function LibraryPage() {
                     </div>
                     <div className="flex items-center justify-start gap-2 md:justify-end">
                       {book.liked ? <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">Liked</span> : null}
+                      {queuedBookIds[book.id] ? <span className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800">Updating</span> : null}
                       <span className="rounded-full border border-stone-200 px-3 py-1 text-xs font-semibold text-stone-600">
                         {isExpanded ? "Close" : "Open"}
                       </span>
@@ -406,23 +484,64 @@ export default function LibraryPage() {
                         </p>
                       </div>
 
+                      <div className="mt-4 grid gap-3 rounded-md border border-stone-200 bg-stone-50/70 p-3 md:grid-cols-[1fr_auto_auto] md:items-center">
+                        <input
+                          value={chapterByBook[book.id] ?? ""}
+                          onChange={(event) => setChapterByBook((current) => ({ ...current, [book.id]: event.target.value }))}
+                          placeholder="Add chapter manually"
+                          className="w-full rounded-md border border-stone-300 px-4 py-2.5 text-sm outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddChapter(book)}
+                          className="rounded-full bg-stone-950 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-stone-800"
+                        >
+                          Add Chapter
+                        </button>
+                        <div className="flex flex-wrap gap-2 md:justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleRegenerateChapters(book)}
+                            className="rounded-full border border-stone-300 px-4 py-2.5 text-xs font-semibold text-stone-700 transition hover:bg-white"
+                          >
+                            {queuedBookIds[book.id] ? "Queued" : "Regenerate"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAllChapters(book)}
+                            className="rounded-full border border-red-200 px-4 py-2.5 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                          >
+                            Delete Chapters
+                          </button>
+                        </div>
+                      </div>
+
                       {book.chapters.length > 0 ? (
                         <div className="mt-5 grid gap-2 border-t border-stone-100 pt-5 md:grid-cols-2">
                           {book.chapters.map((chapter) => (
-                            <label key={chapter.id} className="flex items-start gap-3 rounded-md border border-stone-200 bg-stone-50/70 p-3">
-                              <input
-                                type="checkbox"
-                                checked={chapter.resonated}
-                                onChange={(event) => toggleChapter(book.id, chapter.id, event.target.checked)}
-                                className="mt-1 h-4 w-4 accent-teal-600"
-                              />
-                              <span>
-                                <span className="block text-sm font-semibold text-stone-950">
-                                  {chapter.position}. {chapter.title}
+                            <div key={chapter.id} className="flex items-start gap-3 rounded-md border border-stone-200 bg-stone-50/70 p-3">
+                              <label className="flex flex-1 items-start gap-3">
+                                <input
+                                  type="checkbox"
+                                  checked={chapter.resonated}
+                                  onChange={(event) => toggleChapter(book.id, chapter.id, event.target.checked)}
+                                  className="mt-1 h-4 w-4 accent-teal-600"
+                                />
+                                <span>
+                                  <span className="block text-sm font-semibold text-stone-950">
+                                    {chapter.position}. {chapter.title}
+                                  </span>
+                                  <span className="mt-1 block text-xs text-stone-500">Mark this if the chapter resonated.</span>
                                 </span>
-                                <span className="mt-1 block text-xs text-stone-500">Mark this if the chapter resonated.</span>
-                              </span>
-                            </label>
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteChapter(chapter.id)}
+                                className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           ))}
                         </div>
                       ) : (
@@ -633,6 +752,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function formatShortDay(value: string) {
   return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, { weekday: "short" });
+}
+
+function formatMonth(value: string) {
+  return new Date(`${value}-01T00:00:00`).toLocaleDateString(undefined, { month: "short" });
 }
 
 function formatDate(value: string) {

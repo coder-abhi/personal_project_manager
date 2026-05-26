@@ -80,6 +80,7 @@ class Book(Base):
     current_page: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[BookStatus] = mapped_column(Enum(BookStatus), default=BookStatus.yet_to_start, nullable=False)
     liked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     purchased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     purchase_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     purchase_price: Mapped[float] = mapped_column(Float, default=0, nullable=False)
@@ -96,6 +97,14 @@ class Book(Base):
         cascade="all, delete-orphan",
         order_by="ReadingLog.read_at.desc()",
     )
+
+    @property
+    def pages_read(self) -> int:
+        return sum(log.pages_read for log in self.reading_logs)
+
+    @property
+    def pages_remaining(self) -> int:
+        return max(self.total_pages - self.pages_read, 0)
 
 
 class BookChapter(Base):

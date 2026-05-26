@@ -52,6 +52,8 @@ def ensure_sqlite_compatibility() -> None:
                 connection.execute(text("UPDATE books SET purchased_at = purchase_date WHERE purchase_date IS NOT NULL"))
         if book_columns and "notes" not in book_columns:
             connection.execute(text("ALTER TABLE books ADD COLUMN notes TEXT"))
+        if book_columns and "rating" not in book_columns:
+            connection.execute(text("ALTER TABLE books ADD COLUMN rating INTEGER"))
 
         if chapter_columns and "resonated" not in chapter_columns:
             connection.execute(text("ALTER TABLE book_chapters ADD COLUMN resonated BOOLEAN NOT NULL DEFAULT 0"))

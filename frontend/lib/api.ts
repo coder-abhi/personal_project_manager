@@ -56,13 +56,16 @@ export type Book = {
   total_pages: number;
   status: BookStatus;
   liked: boolean;
+  rating?: number | null;
   purchase_date?: string | null;
   purchase_price?: number | null;
   created_at: string;
+  pages_read: number;
+  pages_remaining: number;
   chapters: BookChapter[];
 };
 
-export type BookInput = Omit<Book, "id" | "created_at" | "chapters">;
+export type BookInput = Omit<Book, "id" | "created_at" | "chapters" | "pages_read" | "pages_remaining">;
 export type BookUpdate = Partial<BookInput>;
 
 export type ReadingLogInput = {
@@ -82,6 +85,7 @@ export type LibrarySummary = {
   pages_this_week: number;
   current_categories: string[];
   daywise_pages: { date: string; pages: number }[];
+  monthly_pages: { month: string; pages: number }[];
   categories: { category: string; books: number }[];
 };
 
@@ -108,6 +112,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const message = await response.text();
     throw new Error(message || `Request failed with ${response.status}`);
   }
+
+  if (response.status === 204) return undefined as T;
 
   return response.json() as Promise<T>;
 }
@@ -171,6 +177,31 @@ export function updateChapter(chapterId: string, resonated: boolean) {
   return request<BookChapter>(`/library/chapters/${chapterId}`, {
     method: "PUT",
     body: JSON.stringify({ resonated }),
+  });
+}
+
+export function addChapter(bookId: string, title: string) {
+  return request<BookChapter>(`/library/books/${bookId}/chapters`, {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function regenerateChapters(bookId: string) {
+  return request<{ status: string }>(`/library/books/${bookId}/chapters/regenerate`, {
+    method: "POST",
+  });
+}
+
+export function deleteChapter(chapterId: string) {
+  return request<void>(`/library/chapters/${chapterId}`, {
+    method: "DELETE",
+  });
+}
+
+export function deleteBookChapters(bookId: string) {
+  return request<void>(`/library/books/${bookId}/chapters`, {
+    method: "DELETE",
   });
 }
 

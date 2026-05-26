@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from .. import crud, schemas
-from ..database import get_db
+from ..database import SessionLocal, get_db
 
 router = APIRouter(prefix="/library", tags=["library"])
 
@@ -18,8 +18,10 @@ async def list_books(db: Session = Depends(get_db)):
 
 
 @router.post("/books", response_model=schemas.BookRead, status_code=status.HTTP_201_CREATED)
-async def create_book(book: schemas.BookCreate, db: Session = Depends(get_db)):
-    return crud.create_book(db, book)
+async def create_book(book: schemas.BookCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    db_book = crud.create_book(db, book)
+    background_tasks.add_task(enrich_book_in_background, db_book.id)
+    return db_book
 
 
 @router.put("/books/{book_id}", response_model=schemas.BookRead)
@@ -38,6 +40,34 @@ async def update_chapter(chapter_id: str, chapter: schemas.ChapterUpdate, db: Se
     return db_chapter
 
 
+@router.post("/books/{book_id}/chapters", response_model=schemas.ChapterRead, status_code=status.HTTP_201_CREATED)
+async def create_chapter(book_id: str, chapter: schemas.ChapterCreate, db: Session = Depends(get_db)):
+    db_chapter = crud.create_chapter(db, book_id, chapter)
+    if db_chapter is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+    return db_chapter
+
+
+@router.post("/books/{book_id}/chapters/regenerate", status_code=status.HTTP_202_ACCEPTED)
+async def regenerate_chapters(book_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    if crud.get_book(db, book_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+    background_tasks.add_task(enrich_book_in_background, book_id, True)
+    return {"status": "queued"}
+
+
+@router.delete("/books/{book_id}/chapters", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_book_chapters(book_id: str, db: Session = Depends(get_db)):
+    if not crud.delete_book_chapters(db, book_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+
+
+@router.delete("/chapters/{chapter_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chapter(chapter_id: str, db: Session = Depends(get_db)):
+    if not crud.delete_chapter(db, chapter_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chapter not found")
+
+
 @router.post("/reading-logs", response_model=schemas.ReadingLogRead, status_code=status.HTTP_201_CREATED)
 async def create_reading_log(reading_log: schemas.ReadingLogCreate, db: Session = Depends(get_db)):
     db_log = crud.create_reading_log(db, reading_log)
@@ -49,3 +79,11 @@ async def create_reading_log(reading_log: schemas.ReadingLogCreate, db: Session 
 @router.get("/recommendations", response_model=list[schemas.SuggestedBook])
 async def suggest_books(db: Session = Depends(get_db)):
     return crud.suggest_books(db)
+
+
+def enrich_book_in_background(book_id: str, replace_chapters: bool = False) -> None:
+    db = SessionLocal()
+    try:
+        crud.enrich_book_metadata(db, book_id, replace_chapters=replace_chapters)
+    finally:
+        db.close()
