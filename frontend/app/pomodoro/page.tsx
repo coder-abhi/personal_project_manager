@@ -1,12 +1,13 @@
 "use client";
 
-import { type CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, FormEvent, Fragment, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { getProjectTasks, getProjects, type Project, type Task } from "@/lib/api";
 
 type TimerMode = "focus" | "short" | "long";
 type SessionState = "idle" | "running" | "paused";
 type TimingMode = "standard" | "custom" | "auto";
-type Mood = "Clear" | "Calm" | "Neutral" | "Restless" | "Drained";
+type Mood = "Flow State" | "Distracted" | "Forced Work" | "Neutral";
 
 type DurationSet = Record<TimerMode, number>;
 
@@ -53,14 +54,7 @@ const modeLabels: Record<TimerMode, string> = {
   short: "Short Break",
   long: "Long Break",
 };
-const moods: Mood[] = ["Clear", "Calm", "Neutral", "Restless", "Drained"];
-const moodScores: Record<Mood, number> = {
-  Clear: 95,
-  Calm: 86,
-  Neutral: 68,
-  Restless: 44,
-  Drained: 28,
-};
+const moods: Mood[] = ["Flow State", "Distracted", "Forced Work", "Neutral"];
 
 export default function PomodoroPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -68,6 +62,7 @@ export default function PomodoroPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timingMode, setTimingMode] = useState<TimingMode>("standard");
+  const [isTimingOpen, setIsTimingOpen] = useState(false);
   const [customFocusMinutes, setCustomFocusMinutes] = useState(25);
   const [customBreakMinutes, setCustomBreakMinutes] = useState(5);
   const [mode, setMode] = useState<TimerMode>("focus");
@@ -171,7 +166,7 @@ export default function PomodoroPage() {
   const averageFocus = getAverage(logs.map((log) => log.focus).filter(isNumber));
   const completionPercent = Math.round(((currentModeDuration - secondsLeft) / currentModeDuration) * 100);
   const minutesLabel = formatSeconds(secondsLeft);
-  const heatmapDays = useMemo(() => buildHeatmapDays(logs), [logs]);
+  const heatmap = useMemo(() => buildHeatmap(logs), [logs]);
 
   function changeMode(nextMode: TimerMode) {
     setMode(nextMode);
@@ -261,6 +256,15 @@ export default function PomodoroPage() {
     resetTimer();
   }
 
+  function deleteDraft() {
+    if (!draft?.id) return;
+    const shouldDelete = window.confirm("Delete this Pomodoro session?");
+    if (!shouldDelete) return;
+
+    setLogs((current) => current.filter((log) => log.id !== draft.id));
+    setDraft(null);
+  }
+
   function draftToLog(nextDraft: SessionDraft): PomodoroLog {
     const draftProject = projects.find((project) => project.id === nextDraft.projectId);
     const draftTask = (tasksByProject[nextDraft.projectId] ?? []).find((task) => task.id === nextDraft.taskId);
@@ -326,49 +330,73 @@ export default function PomodoroPage() {
                   </button>
                 ))}
               </div>
-              <button
-                type="button"
-                onClick={openManualSession}
-                className="rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
-              >
-                Add Session
-              </button>
+              <div className="relative flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTimingOpen((current) => !current)}
+                  className="grid h-10 w-10 place-items-center rounded-full border border-stone-200 bg-white text-lg shadow-sm transition hover:border-teal-200 hover:bg-teal-50"
+                  aria-label="Edit Pomodoro timing"
+                  title="Edit Pomodoro timing"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  onClick={openManualSession}
+                  className="rounded-full bg-teal-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
+                >
+                  Add Session
+                </button>
+
+                {isTimingOpen ? (
+                  <div className="absolute right-0 top-12 z-20 w-[min(22rem,calc(100vw-3rem))] rounded-lg border border-stone-200 bg-white p-4 shadow-2xl shadow-stone-900/15">
+                    <div className="flex flex-wrap gap-2">
+                      {(["standard", "custom", "auto"] as TimingMode[]).map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => {
+                            setTimingMode(item);
+                            setSessionState("idle");
+                            setSessionStartedAt(null);
+                          }}
+                          className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                            timingMode === item ? "bg-stone-950 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200 hover:text-stone-950"
+                          }`}
+                        >
+                          {item === "auto" ? "Auto AI" : titleCase(item)}
+                        </button>
+                      ))}
+                    </div>
+
+                    {timingMode === "custom" ? (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <NumberField label="Focus minutes" max={90} min={5} value={customFocusMinutes} onChange={setCustomFocusMinutes} />
+                        <NumberField label="Break minutes" max={30} min={1} value={customBreakMinutes} onChange={setCustomBreakMinutes} />
+                      </div>
+                    ) : null}
+
+                    {timingMode === "auto" ? (
+                      <div className="mt-4 grid gap-3 text-sm text-stone-600">
+                        <TimingMetric label="Recommended" value={`${autoPlan.focusMinutes}/${autoPlan.breakMinutes}`} detail="focus/break" />
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <TimingMetric label="Streak" value={`${autoPlan.streak}`} detail="days" />
+                          <TimingMetric label="Momentum" value={`${autoPlan.momentum}%`} detail={`${autoPlan.effectiveMinutes} effective min`} />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
 
-            <div className="mt-5 rounded-lg border border-stone-200 bg-white/70 p-4">
-              <div className="flex flex-wrap gap-2">
-                {(["standard", "custom", "auto"] as TimingMode[]).map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => {
-                      setTimingMode(item);
-                      setSessionState("idle");
-                      setSessionStartedAt(null);
-                    }}
-                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                      timingMode === item ? "bg-stone-950 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200 hover:text-stone-950"
-                    }`}
-                  >
-                    {item === "auto" ? "Auto AI" : titleCase(item)}
-                  </button>
-                ))}
-              </div>
-
-              {timingMode === "custom" ? (
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <NumberField label="Focus minutes" max={90} min={5} value={customFocusMinutes} onChange={setCustomFocusMinutes} />
-                  <NumberField label="Break minutes" max={30} min={1} value={customBreakMinutes} onChange={setCustomBreakMinutes} />
-                </div>
-              ) : null}
-
-              {timingMode === "auto" ? (
-                <div className="mt-4 grid gap-3 text-sm text-stone-600 sm:grid-cols-3">
-                  <TimingMetric label="Recommended" value={`${autoPlan.focusMinutes}/${autoPlan.breakMinutes}`} detail="focus/break" />
-                  <TimingMetric label="Streak" value={`${autoPlan.streak}`} detail="days" />
-                  <TimingMetric label="Signal" value={`${autoPlan.confidence}%`} detail={autoPlan.reason} />
-                </div>
-              ) : null}
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-stone-200 bg-white/60 px-4 py-3">
+              <p className="text-sm font-medium text-stone-600">
+                {timingMode === "auto" ? `Auto AI: ${autoPlan.focusMinutes}m focus / ${autoPlan.breakMinutes}m break` : timingMode === "custom" ? `Custom: ${customFocusMinutes}m focus / ${customBreakMinutes}m break` : "Standard: 25m focus / 5m break"}
+              </p>
+              <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-700">
+                {timingMode === "auto" ? `${autoPlan.momentum}% momentum` : titleCase(timingMode)}
+              </span>
             </div>
 
             <div className="mt-8 grid place-items-center">
@@ -406,27 +434,48 @@ export default function PomodoroPage() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-5 px-5 py-8 md:px-8 lg:grid-cols-[1fr_0.9fr]">
+      <section className="mx-auto grid max-w-7xl gap-5 px-5 py-8 md:px-8">
         <div className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Session density</p>
               <h2 className="mt-2 text-2xl font-semibold text-stone-950">Focus calendar</h2>
             </div>
-            <span className="w-fit rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700">Last 12 weeks</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="w-fit rounded-full bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700">🔥 {autoPlan.streak} day streak</span>
+              <span className="w-fit rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-700">Last 52 weeks | 25 min blocks</span>
+            </div>
           </div>
 
           {error ? <p className="mt-5 rounded-lg bg-red-50 p-4 text-sm font-medium text-red-700">{error}</p> : null}
 
           <div className="mt-6 overflow-x-auto">
-            <div className="grid w-max grid-flow-col grid-rows-7 gap-1">
-              {heatmapDays.map((day) => (
-                <div
-                  key={day.iso}
-                  title={`${day.label}: ${day.count} sessions, ${day.minutes} focus minutes`}
-                  className={`h-4 w-4 rounded-sm border border-white ${heatClass(day.count)}`}
-                />
-              ))}
+            <div className="min-w-[980px]">
+              <div className="grid gap-1" style={{ gridTemplateColumns: `3rem repeat(${heatmap.weeks.length}, minmax(0, 1fr))` }}>
+                <div />
+                {heatmap.monthLabels.map((label, index) => (
+                  <div key={`${label}-${index}`} className="h-5 overflow-visible whitespace-nowrap text-xs font-semibold text-stone-400">
+                    {label}
+                  </div>
+                ))}
+
+                {heatmap.weekdays.map((weekday, dayIndex) => (
+                  <Fragment key={weekday}>
+                    <div className="flex items-center text-xs font-medium text-stone-400">{weekday}</div>
+                    {heatmap.weeks.map((week) => {
+                      const day = week.days[dayIndex];
+
+                      return (
+                        <div
+                          key={day.iso}
+                          title={`${day.count} sessions logged on ${day.label}`}
+                          className={`aspect-square w-full rounded-sm border border-white ${heatClass(day.count)}`}
+                        />
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </div>
             </div>
           </div>
           <div className="mt-4 flex items-center justify-between gap-4 text-xs text-stone-500">
@@ -446,7 +495,12 @@ export default function PomodoroPage() {
               <p className="text-sm font-semibold uppercase tracking-wide text-teal-700">Recent work</p>
               <h2 className="mt-2 text-2xl font-semibold text-stone-950">Pomodoro trail</h2>
             </div>
-            <span className="rounded-full bg-stone-100 px-3 py-1 text-sm font-semibold text-stone-700">{logs.length}</span>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-stone-100 px-3 py-1 text-sm font-semibold text-stone-700">{logs.length}</span>
+              <Link href="/pomodoro/history" className="rounded-full bg-stone-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-stone-800">
+                View All
+              </Link>
+            </div>
           </div>
 
           <div className="mt-5 space-y-3">
@@ -457,7 +511,7 @@ export default function PomodoroPage() {
               </div>
             ) : null}
 
-            {logs.slice(0, 8).map((log) => {
+            {logs.slice(0, 10).map((log) => {
               const missingDetails = isMissingDetails(log);
 
               return (
@@ -465,21 +519,21 @@ export default function PomodoroPage() {
                   key={log.id}
                   type="button"
                   onClick={() => openEditSession(log)}
-                  className={`block w-full rounded-lg border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${
+                  className={`grid w-full gap-4 rounded-lg border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm md:grid-cols-[1.2fr_1.6fr_1fr] md:items-center ${
                     missingDetails ? "border-orange-200 bg-orange-50/80" : "border-stone-200 bg-stone-50/70 hover:bg-stone-50"
                   }`}
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-stone-950">{log.taskTitle}</p>
-                      <p className="mt-1 text-xs font-medium text-teal-700">{log.projectName}</p>
-                    </div>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-stone-700 shadow-sm">{log.minutes} min</span>
+                  <div>
+                    <p className="text-sm font-semibold text-stone-950">{log.taskTitle}</p>
+                    <p className="mt-1 text-xs font-medium text-teal-700">{log.projectName}</p>
+                    <p className="mt-2 text-xs text-stone-500">
+                      {new Date(log.completedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} | {log.minutes} min
+                    </p>
                   </div>
-                  <p className={`mt-3 text-sm leading-6 ${missingDetails ? "font-medium text-orange-800" : "text-stone-700"}`}>
+                  <p className={`text-sm leading-6 ${missingDetails ? "font-medium text-orange-800" : "text-stone-700"}`}>
                     {log.done || "Missing log details. Click to add what got done."}
                   </p>
-                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                  <div className="grid grid-cols-3 gap-2 text-center">
                     <LogMetric label="Mood" value={log.mood ?? "Missing"} />
                     <LogMetric label="Energy" value={isNumber(log.energy) ? `${log.energy}/10` : "Missing"} />
                     <LogMetric label="Focus" value={isNumber(log.focus) ? `${log.focus}%` : "Missing"} />
@@ -499,6 +553,7 @@ export default function PomodoroPage() {
           onChange={setDraft}
           onClose={() => setDraft(null)}
           onSave={saveDraft}
+          onDelete={draft.source === "edit" ? deleteDraft : undefined}
           onSaveWithoutDetails={draft.source === "timer" ? saveDraftWithoutDetails : undefined}
           projects={projects}
           tasksByProject={tasksByProject}
@@ -514,6 +569,7 @@ function SessionModal({
   modeOptions,
   onChange,
   onClose,
+  onDelete,
   onSave,
   onSaveWithoutDetails,
   projects,
@@ -524,6 +580,7 @@ function SessionModal({
   modeOptions: Record<TimerMode, string>;
   onChange: (draft: SessionDraft) => void;
   onClose: () => void;
+  onDelete?: () => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   onSaveWithoutDetails?: () => void;
   projects: Project[];
@@ -653,6 +710,15 @@ function SessionModal({
         </div>
 
         <div className="mt-6 flex flex-wrap justify-end gap-3">
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={onDelete}
+              className="mr-auto rounded-full border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+            >
+              Delete
+            </button>
+          ) : null}
           {onSaveWithoutDetails ? (
             <button
               type="button"
@@ -687,50 +753,70 @@ function createDraft(source: SessionDraft["source"], seed: Pick<SessionDraft, "m
 
 function calculateAutoPlan(logs: PomodoroLog[]) {
   const focusLogs = logs.filter((log) => log.mode === "focus");
-  const recentLogs = focusLogs.filter((log) => daysBetween(new Date(log.completedAt), new Date()) <= 14);
-  const sourceLogs = recentLogs.length >= 3 ? recentLogs : focusLogs;
-  const avgFocus = getAverage(sourceLogs.map((log) => log.focus).filter(isNumber)) || 75;
-  const avgEnergy = getAverage(sourceLogs.map((log) => log.energy).filter(isNumber)) * 10 || 70;
-  const avgMood = getAverage(sourceLogs.map((log) => (log.mood ? moodScores[log.mood] : null)).filter(isNumber)) || 70;
-  const avgMinutes = getAverage(sourceLogs.map((log) => log.minutes)) || 25;
-  const activeDays = new Set(sourceLogs.map((log) => dateKey(new Date(log.completedAt)))).size || 1;
-  const frequency = Math.min(sourceLogs.length / activeDays, 4);
+  const sourceLogs = focusLogs.filter((log) => daysBetween(new Date(log.completedAt), new Date()) <= 6);
   const streak = getCurrentStreak(logs);
-  const readiness = avgFocus * 0.4 + avgEnergy * 0.25 + avgMood * 0.2 + frequency * 6 + Math.min(streak, 7) * 1.5;
-  const base = readiness >= 86 ? 40 : readiness >= 76 ? 35 : readiness >= 64 ? 30 : readiness >= 52 ? 25 : 20;
-  const focusMinutes = clamp(Math.round((base * 0.7 + avgMinutes * 0.3) / 5) * 5, 15, 45);
-  const breakMinutes = focusMinutes >= 40 ? 10 : focusMinutes >= 30 ? 7 : 5;
-  const reason = sourceLogs.length < 3 ? "warming up" : readiness >= 76 ? "strong rhythm" : readiness >= 52 ? "steady" : "recovery";
+  const effectiveMinutes = sourceLogs.reduce((sum, log) => sum + log.minutes * ((log.focus ?? 0) / 100), 0);
+  const momentum = clamp(Math.round((effectiveMinutes / 1200) * 100), 0, 100);
+  const focusMinutes = clamp(Math.round((15 + momentum * 0.35) / 5) * 5, 15, 50);
+  const breakMinutes = focusMinutes >= 45 ? 10 : focusMinutes >= 30 ? 7 : 5;
+  const roundedEffectiveMinutes = Math.round(effectiveMinutes);
+
+  if (sourceLogs.length === 0) {
+    return {
+      breakMinutes: 5,
+      focusMinutes: 15,
+      effectiveMinutes: 0,
+      momentum: 0,
+      streak,
+    };
+  }
 
   return {
     breakMinutes,
-    confidence: clamp(Math.round(Math.min(sourceLogs.length, 20) * 5), 20, 100),
+    effectiveMinutes: roundedEffectiveMinutes,
     focusMinutes,
-    reason,
+    momentum,
     streak,
   };
 }
 
-function buildHeatmapDays(logs: PomodoroLog[]) {
+function buildHeatmap(logs: PomodoroLog[]) {
+  const weekCount = 52;
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const today = startOfDay(new Date());
-  const start = addDays(today, -83);
+  const end = addDays(today, 6 - today.getDay());
+  const start = addDays(end, -(weekCount * 7 - 1));
   const counts = logs.reduce<Record<string, { count: number; minutes: number }>>((acc, log) => {
+    if (log.mode !== "focus") return acc;
+
     const key = dateKey(new Date(log.completedAt));
     acc[key] = acc[key] ?? { count: 0, minutes: 0 };
-    acc[key].count += 1;
-    if (log.mode === "focus") acc[key].minutes += log.minutes;
+    acc[key].minutes += log.minutes;
+    acc[key].count = Math.floor(acc[key].minutes / 25);
     return acc;
   }, {});
 
-  return Array.from({ length: 84 }, (_, index) => {
-    const date = addDays(start, index);
-    const day = counts[dateKey(date)] ?? { count: 0, minutes: 0 };
-    return {
-      ...day,
-      iso: date.toISOString(),
-      label: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-    };
+  const weeks = Array.from({ length: weekCount }, (_, weekIndex) => ({
+    days: Array.from({ length: 7 }, (_, dayIndex) => {
+      const date = addDays(start, weekIndex * 7 + dayIndex);
+      const day = counts[dateKey(date)] ?? { count: 0, minutes: 0 };
+
+      return {
+        ...day,
+        iso: date.toISOString(),
+        label: date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
+      };
+    }),
+  }));
+  const monthLabels = weeks.map((week, index) => {
+    const firstOfMonth = week.days.find((day) => new Date(day.iso).getDate() === 1);
+    if (!firstOfMonth && index !== 0) return "";
+
+    const labelDate = new Date((firstOfMonth ?? week.days[0]).iso);
+    return labelDate.toLocaleDateString(undefined, { month: "short" });
   });
+
+  return { monthLabels, weekdays, weeks };
 }
 
 function HeroMetric({ detail, label, value }: { detail: string; label: string; value: string }) {
