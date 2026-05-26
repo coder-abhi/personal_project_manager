@@ -451,26 +451,33 @@ export default function PomodoroPage() {
 
           <div className="mt-6 overflow-x-auto">
             <div className="min-w-[980px]">
-              <div className="grid gap-1" style={{ gridTemplateColumns: `3rem repeat(${heatmap.weeks.length}, minmax(0, 1fr))` }}>
+              <div className="mb-1 grid gap-1" style={{ gridTemplateColumns: `3rem repeat(${heatmap.weeks.length}, minmax(0, 1fr))` }}>
                 <div />
-                {heatmap.monthLabels.map((label, index) => (
-                  <div key={`${label}-${index}`} className="h-5 overflow-visible whitespace-nowrap text-xs font-semibold text-stone-400">
-                    {label}
+                {heatmap.monthSpans.map((month) => (
+                  <div
+                    key={`${month.label}-${month.start}`}
+                    className="h-5 text-left text-xs font-semibold text-stone-400"
+                    style={{ gridColumn: `${month.labelStart + 2} / span ${month.labelLength}` }}
+                  >
+                    <span>{month.label}</span>
                   </div>
                 ))}
+              </div>
 
+              <div className="grid gap-1" style={{ gridTemplateColumns: `3rem repeat(${heatmap.weeks.length}, minmax(0, 1fr))` }}>
                 {heatmap.weekdays.map((weekday, dayIndex) => (
                   <Fragment key={weekday}>
                     <div className="flex items-center text-xs font-medium text-stone-400">{weekday}</div>
-                    {heatmap.weeks.map((week) => {
+                    {heatmap.weeks.map((week, weekIndex) => {
                       const day = week.days[dayIndex];
 
                       return (
-                        <div
-                          key={day.iso}
-                          title={`${day.count} sessions logged on ${day.label}`}
-                          className={`aspect-square w-full rounded-sm border border-white ${heatClass(day.count)}`}
-                        />
+                        <div key={day.iso} className={`relative ${week.isMonthStart && weekIndex > 0 ? "before:absolute before:-left-0.5 before:inset-y-0 before:w-px before:bg-stone-400" : ""}`}>
+                          <div
+                            title={`${day.count} sessions logged on ${day.label}`}
+                            className={`aspect-square w-full rounded-sm border border-white ${heatClass(day.count)}`}
+                          />
+                        </div>
                       );
                     })}
                   </Fragment>
@@ -796,8 +803,13 @@ function buildHeatmap(logs: PomodoroLog[]) {
     return acc;
   }, {});
 
-  const weeks = Array.from({ length: weekCount }, (_, weekIndex) => ({
-    days: Array.from({ length: 7 }, (_, dayIndex) => {
+  const weeks = Array.from({ length: weekCount }, (_, weekIndex) => {
+    const weekStart = addDays(start, weekIndex * 7);
+
+    return {
+      isMonthStart: weekIndex === 0 || Array.from({ length: 7 }, (_, dayIndex) => addDays(weekStart, dayIndex)).some((date) => date.getDate() === 1),
+      monthKey: `${weekStart.getFullYear()}-${weekStart.getMonth()}`,
+      days: Array.from({ length: 7 }, (_, dayIndex) => {
       const date = addDays(start, weekIndex * 7 + dayIndex);
       const day = counts[dateKey(date)] ?? { count: 0, minutes: 0 };
 
@@ -807,16 +819,31 @@ function buildHeatmap(logs: PomodoroLog[]) {
         label: date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
       };
     }),
-  }));
-  const monthLabels = weeks.map((week, index) => {
-    const firstOfMonth = week.days.find((day) => new Date(day.iso).getDate() === 1);
-    if (!firstOfMonth && index !== 0) return "";
+    };
+  });
+  const monthSpans = weeks.reduce<{ key: string; label: string; length: number; start: number }[]>((spans, week, weekIndex) => {
+    const labelDate = new Date(week.days.find((day) => new Date(day.iso).getDate() === 1)?.iso ?? week.days[0].iso);
+    const label = labelDate.toLocaleDateString(undefined, { month: "short" });
+    const current = spans[spans.length - 1];
 
-    const labelDate = new Date((firstOfMonth ?? week.days[0]).iso);
-    return labelDate.toLocaleDateString(undefined, { month: "short" });
+    if (current?.key === week.monthKey) {
+      current.length += 1;
+      return spans;
+    }
+
+    return [...spans, { key: week.monthKey, label, length: 1, start: weekIndex }];
+  }, []);
+  const shiftedMonthSpans = monthSpans.map((month) => {
+    const labelOffset = month.length > 1 ? 1 : 0;
+
+    return {
+      ...month,
+      labelLength: Math.max(1, month.length - labelOffset),
+      labelStart: month.start + labelOffset,
+    };
   });
 
-  return { monthLabels, weekdays, weeks };
+  return { monthSpans: shiftedMonthSpans, weekdays, weeks };
 }
 
 function HeroMetric({ detail, label, value }: { detail: string; label: string; value: string }) {
