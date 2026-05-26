@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import PomodoroCompletionToast from "@/components/PomodoroCompletionToast";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -37,6 +38,7 @@ export default function RootLayout({
           </div>
         </nav>
         {children}
+        <PomodoroCompletionToast />
       </body>
     </html>
   );

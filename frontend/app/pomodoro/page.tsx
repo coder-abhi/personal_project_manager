@@ -3,6 +3,17 @@
 import { type CSSProperties, FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getProjectTasks, getProjects, matchPomodoroAssignment, updateTask, type Project, type Task } from "@/lib/api";
+import {
+  activePomodoroSessionKey,
+  announcePomodoroCompletion,
+  announcePomodoroSessionUpdate,
+  pendingPomodoroCompletionKey,
+  pomodoroSessionUpdatedEvent,
+  readActivePomodoroSession,
+  readPendingPomodoroCompletion,
+  type PendingPomodoroCompletion,
+  type PersistedPomodoroSession,
+} from "@/lib/pomodoroSession";
 
 type TimerMode = "focus" | "short" | "long";
 type SessionState = "idle" | "running" | "paused";
@@ -72,8 +83,11 @@ export default function PomodoroPage() {
   const [secondsLeft, setSecondsLeft] = useState(defaultAutoDurations.focus);
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
+  const [sessionEndsAt, setSessionEndsAt] = useState<string | null>(null);
+  const [sessionDurationSeconds, setSessionDurationSeconds] = useState<number | null>(null);
   const [logs, setLogs] = useState<PomodoroLog[]>([]);
   const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
+  const [hasLoadedActiveSession, setHasLoadedActiveSession] = useState(false);
   const [fixedProjectId, setFixedProjectId] = useState("");
   const [continuousProjectId, setContinuousProjectId] = useState("");
   const [sessionNote, setSessionNote] = useState("");
@@ -138,6 +152,7 @@ export default function PomodoroPage() {
   }, [autoPlan, customBreakMinutes, customFocusMinutes, timingMode]);
 
   const currentModeDuration = activeDurations[mode];
+  const activeSessionDuration = sessionDurationSeconds ?? currentModeDuration;
 
   useEffect(() => {
     if (sessionState === "idle") setSecondsLeft(currentModeDuration);
@@ -147,24 +162,81 @@ export default function PomodoroPage() {
     if (sessionState !== "running") return;
 
     const timer = window.setInterval(() => {
-      setSecondsLeft((current) => {
-        if (current <= 1) {
-          window.clearInterval(timer);
-          completeTimerSession();
-          return 0;
-        }
+      if (!sessionEndsAt) return;
 
-        return current - 1;
-      });
+      const nextSecondsLeft = Math.max(0, Math.ceil((new Date(sessionEndsAt).getTime() - Date.now()) / 1000));
+      setSecondsLeft(nextSecondsLeft);
+
+      if (nextSecondsLeft <= 0) {
+        window.clearInterval(timer);
+        completeTimerSession(new Date(sessionEndsAt));
+      }
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [currentModeDuration, mode, sessionStartedAt, sessionState, sessionNote, fixedProjectId, continuousProjectId]);
+  }, [sessionEndsAt, sessionState, sessionStartedAt, sessionDurationSeconds, sessionNote, fixedProjectId, continuousProjectId]);
+
+  useEffect(() => {
+    const activeSession = readActivePomodoroSession();
+    if (!activeSession) {
+      setHasLoadedActiveSession(true);
+      return;
+    }
+
+    restoreActiveSession(activeSession);
+    setHasLoadedActiveSession(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedActiveSession) return;
+
+    if (sessionState === "idle" || !sessionStartedAt || !sessionDurationSeconds) {
+      window.localStorage.removeItem(activePomodoroSessionKey);
+      announcePomodoroSessionUpdate();
+      return;
+    }
+
+    const activeSession: PersistedPomodoroSession = {
+      id: sessionStartedAt,
+      mode,
+      durationSeconds: sessionDurationSeconds,
+      startedAt: sessionStartedAt,
+      endsAt: sessionState === "running" ? sessionEndsAt : null,
+      state: sessionState,
+      pausedRemainingSeconds: sessionState === "paused" ? secondsLeft : null,
+      note: sessionNote,
+      fixedProjectId,
+      continuousProjectId,
+    };
+
+    window.localStorage.setItem(activePomodoroSessionKey, JSON.stringify(activeSession));
+    announcePomodoroSessionUpdate();
+  }, [continuousProjectId, fixedProjectId, hasLoadedActiveSession, mode, secondsLeft, sessionDurationSeconds, sessionEndsAt, sessionStartedAt, sessionState, sessionNote]);
+
+  useEffect(() => {
+    function handlePendingCompletion() {
+      const pendingCompletion = readPendingPomodoroCompletion();
+      if (!pendingCompletion) return;
+
+      window.localStorage.removeItem(pendingPomodoroCompletionKey);
+      announcePomodoroSessionUpdate();
+      completePendingSession(pendingCompletion);
+    }
+
+    handlePendingCompletion();
+    window.addEventListener("storage", handlePendingCompletion);
+    window.addEventListener(pomodoroSessionUpdatedEvent, handlePendingCompletion);
+
+    return () => {
+      window.removeEventListener("storage", handlePendingCompletion);
+      window.removeEventListener(pomodoroSessionUpdatedEvent, handlePendingCompletion);
+    };
+  }, []);
 
   const completedToday = logs.filter((log) => isToday(new Date(log.completedAt))).length;
   const totalFocusMinutes = logs.filter((log) => log.mode === "focus").reduce((sum, log) => sum + log.minutes, 0);
   const averageFocus = getAverage(logs.map((log) => log.focus).filter(isNumber));
-  const completionPercent = Math.round(((currentModeDuration - secondsLeft) / currentModeDuration) * 100);
+  const completionPercent = Math.round(((activeSessionDuration - secondsLeft) / activeSessionDuration) * 100);
   const minutesLabel = formatSeconds(secondsLeft);
   const heatmap = useMemo(() => buildHeatmap(logs), [logs]);
   const fixedProjects = projects.filter((project) => project.type === "fixed");
@@ -175,16 +247,26 @@ export default function PomodoroPage() {
     setSecondsLeft(activeDurations[nextMode]);
     setSessionState("idle");
     setSessionStartedAt(null);
+    setSessionEndsAt(null);
+    setSessionDurationSeconds(null);
   }
 
   function startOrPauseTimer() {
     if (sessionState === "running") {
+      if (sessionEndsAt) {
+        setSecondsLeft(Math.max(0, Math.ceil((new Date(sessionEndsAt).getTime() - Date.now()) / 1000)));
+      }
       setSessionState("paused");
+      setSessionEndsAt(null);
       return;
     }
 
-    if (secondsLeft === 0) setSecondsLeft(currentModeDuration);
-    if (!sessionStartedAt) setSessionStartedAt(new Date().toISOString());
+    const nextSecondsLeft = secondsLeft === 0 ? currentModeDuration : secondsLeft;
+    const now = new Date();
+    setSecondsLeft(nextSecondsLeft);
+    setSessionEndsAt(new Date(now.getTime() + nextSecondsLeft * 1000).toISOString());
+    setSessionDurationSeconds(sessionDurationSeconds ?? currentModeDuration);
+    if (!sessionStartedAt) setSessionStartedAt(now.toISOString());
     setSessionState("running");
   }
 
@@ -192,13 +274,31 @@ export default function PomodoroPage() {
     setSecondsLeft(currentModeDuration);
     setSessionState("idle");
     setSessionStartedAt(null);
+    setSessionEndsAt(null);
+    setSessionDurationSeconds(null);
   }
 
-  async function completeTimerSession() {
-    const endAt = new Date();
-    const startAt = sessionStartedAt ? new Date(sessionStartedAt) : new Date(endAt.getTime() - currentModeDuration * 1000);
+  async function completeTimerSession(completedAt?: Date) {
+    const endAt = completedAt ?? new Date();
+    const durationSeconds = sessionDurationSeconds ?? currentModeDuration;
+    const startAt = sessionStartedAt ? new Date(sessionStartedAt) : new Date(endAt.getTime() - durationSeconds * 1000);
     setSessionState("idle");
     setSessionStartedAt(null);
+    setSessionEndsAt(null);
+    setSessionDurationSeconds(null);
+    window.localStorage.removeItem(activePomodoroSessionKey);
+    window.localStorage.removeItem(pendingPomodoroCompletionKey);
+    announcePomodoroCompletion({
+      id: sessionStartedAt ?? endAt.toISOString(),
+      mode,
+      durationSeconds,
+      startedAt: startAt.toISOString(),
+      completedAt: endAt.toISOString(),
+      note: sessionNote,
+      fixedProjectId,
+      continuousProjectId,
+    });
+    announcePomodoroSessionUpdate();
     const nextDraft = createDraft("timer", {
       startAt: toDateTimeLocal(startAt),
       endAt: toDateTimeLocal(endAt),
@@ -222,6 +322,86 @@ export default function PomodoroPage() {
 
     setDraft(nextDraft);
     setSessionNote("");
+  }
+
+  async function completePendingSession(pendingCompletion: PendingPomodoroCompletion) {
+    setMode(pendingCompletion.mode);
+    setSecondsLeft(activeDurations[pendingCompletion.mode]);
+    setSessionState("idle");
+    setSessionStartedAt(null);
+    setSessionEndsAt(null);
+    setSessionDurationSeconds(null);
+    setSessionNote("");
+    setFixedProjectId(pendingCompletion.fixedProjectId);
+    setContinuousProjectId(pendingCompletion.continuousProjectId);
+
+    const startAt = new Date(pendingCompletion.startedAt);
+    const endAt = new Date(pendingCompletion.completedAt);
+    const nextDraft = createDraft("timer", {
+      startAt: toDateTimeLocal(startAt),
+      endAt: toDateTimeLocal(endAt),
+      mode: pendingCompletion.mode,
+      projectId: "",
+      taskId: "",
+    }, pendingCompletion.note);
+
+    const note = pendingCompletion.note.trim();
+    if (note) {
+      try {
+        const assignment = await matchPomodoroAssignment(note, getSelectedProjectIds(pendingCompletion.fixedProjectId, pendingCompletion.continuousProjectId));
+        if (assignment.assigned && assignment.project_id && assignment.task_id) {
+          nextDraft.projectId = assignment.project_id;
+          nextDraft.taskId = assignment.task_id;
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not assign Pomodoro session");
+      }
+    }
+
+    setDraft(nextDraft);
+  }
+
+  function restoreActiveSession(activeSession: PersistedPomodoroSession) {
+    setMode(activeSession.mode);
+    setSessionStartedAt(activeSession.startedAt);
+    setSessionDurationSeconds(activeSession.durationSeconds);
+    setSessionNote(activeSession.note);
+    setFixedProjectId(activeSession.fixedProjectId);
+    setContinuousProjectId(activeSession.continuousProjectId);
+
+    if (activeSession.state === "paused") {
+      setSecondsLeft(activeSession.pausedRemainingSeconds ?? activeSession.durationSeconds);
+      setSessionEndsAt(null);
+      setSessionState("paused");
+      return;
+    }
+
+    const endsAt = activeSession.endsAt ? new Date(activeSession.endsAt) : null;
+    if (!endsAt || endsAt.getTime() <= Date.now()) {
+      const pendingCompletion: PendingPomodoroCompletion = {
+        id: activeSession.id,
+        mode: activeSession.mode,
+        durationSeconds: activeSession.durationSeconds,
+        startedAt: activeSession.startedAt,
+        completedAt: (endsAt ?? new Date()).toISOString(),
+        note: activeSession.note,
+        fixedProjectId: activeSession.fixedProjectId,
+        continuousProjectId: activeSession.continuousProjectId,
+      };
+
+      window.localStorage.removeItem(activePomodoroSessionKey);
+      window.localStorage.setItem(pendingPomodoroCompletionKey, JSON.stringify(pendingCompletion));
+      announcePomodoroSessionUpdate();
+      setSessionState("idle");
+      setSessionStartedAt(null);
+      setSessionDurationSeconds(null);
+      setSecondsLeft(activeDurations[activeSession.mode]);
+      return;
+    }
+
+    setSessionEndsAt(endsAt.toISOString());
+    setSecondsLeft(Math.max(0, Math.ceil((endsAt.getTime() - Date.now()) / 1000)));
+    setSessionState("running");
   }
 
   function openManualSession() {
@@ -293,7 +473,7 @@ export default function PomodoroPage() {
 
   function draftToLog(nextDraft: SessionDraft): PomodoroLog {
     const draftProject = projects.find((project) => project.id === nextDraft.projectId);
-    const draftTask = (tasksByProject[nextDraft.projectId] ?? []).find((task) => task.id === nextDraft.taskId);
+    const continuousProject = projects.find((project) => project.id === nextDraft.taskId && project.type === "continuous");
     const startAt = new Date(nextDraft.startAt);
     const endAt = new Date(nextDraft.endAt);
     const minutes = Math.max(1, Math.round((endAt.getTime() - startAt.getTime()) / 60_000));
@@ -306,14 +486,12 @@ export default function PomodoroPage() {
       minutes,
       mode: nextDraft.mode,
       projectId: nextDraft.projectId || undefined,
-      projectName: draftProject?.name ?? "Unassigned",
+      projectName: draftProject?.name ?? "No fixed project",
       taskId: nextDraft.taskId || undefined,
-      taskTitle: draftTask?.title ?? "General focus",
+      taskTitle: continuousProject?.name ?? "No continuous project",
       done: nextDraft.done.trim() || undefined,
       energy: nextDraft.energy || null,
       focus: nextDraft.focus || null,
-      investedTaskId: nextDraft.taskId || undefined,
-      investedMinutes: nextDraft.taskId && nextDraft.mode === "focus" ? minutes : undefined,
       isManual: nextDraft.source === "manual",
     };
   }
@@ -430,6 +608,8 @@ export default function PomodoroPage() {
                             setTimingMode(item);
                             setSessionState("idle");
                             setSessionStartedAt(null);
+                            setSessionEndsAt(null);
+                            setSessionDurationSeconds(null);
                           }}
                           className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                             timingMode === item ? "bg-stone-950 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200 hover:text-stone-950"
@@ -663,8 +843,8 @@ export default function PomodoroPage() {
           onSave={saveDraft}
           onDelete={draft.source === "edit" ? deleteDraft : undefined}
           onSaveWithoutDetails={draft.source === "timer" ? saveDraftWithoutDetails : undefined}
-          projects={projects}
-          tasksByProject={tasksByProject}
+          continuousProjects={continuousProjects}
+          fixedProjects={fixedProjects}
         />
       ) : null}
     </main>
@@ -680,8 +860,8 @@ function SessionModal({
   onDelete,
   onSave,
   onSaveWithoutDetails,
-  projects,
-  tasksByProject,
+  continuousProjects,
+  fixedProjects,
 }: {
   draft: SessionDraft;
   isLoading: boolean;
@@ -691,10 +871,9 @@ function SessionModal({
   onDelete?: () => void;
   onSave: (event: FormEvent<HTMLFormElement>) => void;
   onSaveWithoutDetails?: () => void;
-  projects: Project[];
-  tasksByProject: Record<string, Task[]>;
+  continuousProjects: Project[];
+  fixedProjects: Project[];
 }) {
-  const tasks = draft.projectId ? tasksByProject[draft.projectId] ?? [] : [];
   const title = draft.source === "manual" ? "Add Session" : draft.source === "edit" ? "Edit Session" : "Session Complete";
 
   return (
@@ -754,14 +933,14 @@ function SessionModal({
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <label className="block text-sm font-medium text-stone-700">
-            Project
+            Fixed project
             <select
               value={draft.projectId}
               onChange={(event) => onChange({ ...draft, projectId: event.target.value, taskId: "" })}
               className="mt-2 w-full rounded-md border border-stone-300 bg-white px-4 py-3 outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
             >
-              <option value="">Unassigned</option>
-              {projects.map((project) => (
+              <option value="">No fixed project</option>
+              {fixedProjects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
                 </option>
@@ -770,17 +949,17 @@ function SessionModal({
           </label>
 
           <label className="block text-sm font-medium text-stone-700">
-            Task
+            Continuous project
             <select
               value={draft.taskId}
               onChange={(event) => onChange({ ...draft, taskId: event.target.value })}
-              disabled={!draft.projectId || isLoading}
+              disabled={isLoading}
               className="mt-2 w-full rounded-md border border-stone-300 bg-white px-4 py-3 outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4 disabled:bg-stone-100"
             >
-              <option value="">General focus</option>
-              {tasks.map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.title}
+              <option value="">No continuous project</option>
+              {continuousProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
                 </option>
               ))}
             </select>
