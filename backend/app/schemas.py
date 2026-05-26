@@ -67,6 +67,23 @@ class TaskRead(TaskBase):
     created_at: datetime
 
 
+class PomodoroAssignmentProject(BaseModel):
+    project_id: str
+
+
+class PomodoroAssignmentRequest(BaseModel):
+    note: str = Field(default="", max_length=4000)
+    project_ids: list[str] = Field(default_factory=list)
+
+
+class PomodoroAssignmentRead(BaseModel):
+    assigned: bool
+    confidence: float
+    project_id: str | None = None
+    task_id: str | None = None
+    reason: str | None = None
+
+
 class ChapterRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

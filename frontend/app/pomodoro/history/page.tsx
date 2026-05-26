@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-type Mood = "Flow State" | "Distracted" | "Forced Work" | "Neutral";
 type TimerMode = "focus" | "short" | "long";
 
 type PomodoroLog = {
@@ -16,7 +15,6 @@ type PomodoroLog = {
   projectName: string;
   taskTitle: string;
   done?: string;
-  mood?: Mood | null;
   energy?: number | null;
   focus?: number | null;
 };
@@ -65,7 +63,7 @@ export default function PomodoroHistoryPage() {
             ) : null}
 
             {logs.map((log) => {
-              const missingDetails = !log.done || !log.mood || !isNumber(log.energy) || !isNumber(log.focus);
+              const missingDetails = !log.done || !isNumber(log.energy) || !isNumber(log.focus);
 
               return (
                 <article
@@ -84,8 +82,7 @@ export default function PomodoroHistoryPage() {
                   <p className={`text-sm leading-6 ${missingDetails ? "font-medium text-orange-800" : "text-stone-700"}`}>
                     {log.done || "Missing log details"}
                   </p>
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <LogMetric label="Mood" value={log.mood ?? "Missing"} />
+                  <div className="grid grid-cols-2 gap-2 text-center">
                     <LogMetric label="Energy" value={isNumber(log.energy) ? `${log.energy}/10` : "Missing"} />
                     <LogMetric label="Focus" value={isNumber(log.focus) ? `${log.focus}%` : "Missing"} />
                   </div>

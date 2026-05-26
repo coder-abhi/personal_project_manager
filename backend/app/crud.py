@@ -14,6 +14,8 @@ from .prompts import (
     BOOK_RECOMMENDATIONS_USER_PROMPT,
     OWNED_BOOK_NEXT_READ_SYSTEM_PROMPT,
     OWNED_BOOK_NEXT_READ_USER_PROMPT,
+    POMODORO_ASSIGNMENT_SYSTEM_PROMPT,
+    POMODORO_ASSIGNMENT_USER_PROMPT,
 )
 
 try:
@@ -115,6 +117,70 @@ def create_task(db: Session, task: schemas.TaskCreate) -> models.Task:
 def list_tasks_by_project(db: Session, project_id: str) -> list[models.Task]:
     query = select(models.Task).where(models.Task.project_id == project_id).order_by(models.Task.created_at.desc())
     return list(db.scalars(query))
+
+
+def match_pomodoro_assignment(db: Session, request: schemas.PomodoroAssignmentRequest) -> schemas.PomodoroAssignmentRead:
+    note = request.note.strip()
+    if not note:
+        return schemas.PomodoroAssignmentRead(assigned=False, confidence=0, reason="No session note provided.")
+
+    query = select(models.Project).options(selectinload(models.Project.tasks)).order_by(models.Project.created_at.desc())
+    if request.project_ids:
+        query = query.where(models.Project.id.in_(request.project_ids))
+    projects = list(db.scalars(query))
+    candidates = [
+        {
+            "project_id": project.id,
+            "project_name": project.name,
+            "project_type": project.type.value,
+            "tasks": [
+                {
+                    "task_id": task.id,
+                    "title": task.title,
+                    "description": task.description,
+                    "status": task.status.value,
+                    "priority": task.priority.value,
+                }
+                for task in project.tasks
+                if task.status != models.TaskStatus.done
+            ],
+        }
+        for project in projects
+    ]
+    candidates = [project for project in candidates if project["tasks"]]
+    if not candidates:
+        return schemas.PomodoroAssignmentRead(assigned=False, confidence=0, reason="No active candidate tasks.")
+
+    data = resolve_pomodoro_assignment(note=note, candidates=candidates)
+    confidence = _as_float(data.get("confidence"))
+    project_id = _clean_text(data.get("project_id"))
+    task_id = _clean_text(data.get("task_id"))
+    valid_task_ids = {
+        task["task_id"]: project["project_id"]
+        for project in candidates
+        for task in project["tasks"]
+    }
+
+    if data.get("assigned") is not True or confidence < 0.78:
+        return schemas.PomodoroAssignmentRead(
+            assigned=False,
+            confidence=confidence,
+            reason=_clean_text(data.get("reason")) or "The model was not confident enough.",
+        )
+    if task_id not in valid_task_ids or valid_task_ids[task_id] != project_id:
+        return schemas.PomodoroAssignmentRead(
+            assigned=False,
+            confidence=confidence,
+            reason="The model returned an invalid project/task pair.",
+        )
+
+    return schemas.PomodoroAssignmentRead(
+        assigned=True,
+        confidence=confidence,
+        project_id=project_id,
+        task_id=task_id,
+        reason=_clean_text(data.get("reason")),
+    )
 
 
 def update_task(db: Session, task_id: str, task: schemas.TaskUpdate) -> models.Task | None:
@@ -424,6 +490,11 @@ def resolve_book_metadata(title: str, author: str | None, category: str | None) 
 def fetch_book_metadata(title: str, author: str | None, category: str | None) -> dict:
     prompt = f"{BOOK_METADATA_USER_PROMPT} Context: {json.dumps({'title': title, 'author': author, 'category': category})}"
     return _call_openai_json(BOOK_METADATA_SYSTEM_PROMPT, prompt, max_tokens=1200)
+
+
+def resolve_pomodoro_assignment(note: str, candidates: list[dict]) -> dict:
+    prompt = f"{POMODORO_ASSIGNMENT_USER_PROMPT} Context: {json.dumps({'note': note, 'candidates': candidates})}"
+    return _call_openai_json(POMODORO_ASSIGNMENT_SYSTEM_PROMPT, prompt, max_tokens=700)
 
 
 def _clean_text(value: object) -> str | None:

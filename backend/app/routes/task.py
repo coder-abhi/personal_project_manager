@@ -14,6 +14,11 @@ async def create_task(task: schemas.TaskCreate, db: Session = Depends(get_db)):
     return crud.create_task(db, task)
 
 
+@router.post("/pomodoro-assignment", response_model=schemas.PomodoroAssignmentRead)
+async def match_pomodoro_assignment(request: schemas.PomodoroAssignmentRequest, db: Session = Depends(get_db)):
+    return crud.match_pomodoro_assignment(db, request)
+
+
 @router.put("/{task_id}", response_model=schemas.TaskRead)
 async def update_task(task_id: str, task: schemas.TaskUpdate, db: Session = Depends(get_db)):
     db_task = crud.update_task(db, task_id, task)

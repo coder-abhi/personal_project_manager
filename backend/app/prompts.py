@@ -35,3 +35,16 @@ OWNED_BOOK_NEXT_READ_USER_PROMPT = (
     "Return only JSON with a recommendations array. Each item must include book_id and reason. "
     "Use only book_id values present in the candidate list."
 )
+
+POMODORO_ASSIGNMENT_SYSTEM_PROMPT = (
+    "You are a careful work-log classifier. Match a Pomodoro note to exactly one project and one task only when "
+    "the note clearly describes work for that task. Use only IDs from the provided candidates. If the note is "
+    "ambiguous, too generic, or could fit multiple tasks, leave it unassigned. Reply with valid JSON only."
+)
+
+POMODORO_ASSIGNMENT_USER_PROMPT = (
+    "Given the Pomodoro note and candidate projects/tasks, choose the best project_id and task_id. "
+    "Return only JSON with: assigned boolean, confidence number from 0 to 1, project_id string or null, "
+    "task_id string or null, reason string. Set assigned=false unless confidence is high and the task_id belongs "
+    "to the chosen project_id. Use only IDs present in the candidates."
+)

@@ -2,12 +2,11 @@
 
 import { type CSSProperties, FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getProjectTasks, getProjects, type Project, type Task } from "@/lib/api";
+import { getProjectTasks, getProjects, matchPomodoroAssignment, updateTask, type Project, type Task } from "@/lib/api";
 
 type TimerMode = "focus" | "short" | "long";
 type SessionState = "idle" | "running" | "paused";
 type TimingMode = "standard" | "custom" | "auto";
-type Mood = "Flow State" | "Distracted" | "Forced Work" | "Neutral";
 
 type DurationSet = Record<TimerMode, number>;
 
@@ -23,9 +22,11 @@ type PomodoroLog = {
   taskId?: string;
   taskTitle: string;
   done?: string;
-  mood?: Mood | null;
   energy?: number | null;
   focus?: number | null;
+  investedTaskId?: string;
+  investedMinutes?: number;
+  assignmentConfidence?: number | null;
   isManual?: boolean;
 };
 
@@ -38,7 +39,6 @@ type SessionDraft = {
   projectId: string;
   taskId: string;
   done: string;
-  mood: Mood | "";
   energy: number;
   focus: number;
 };
@@ -59,8 +59,6 @@ const modeLabels: Record<TimerMode, string> = {
   short: "Short Break",
   long: "Long Break",
 };
-const moods: Mood[] = ["Flow State", "Distracted", "Forced Work", "Neutral"];
-
 export default function PomodoroPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasksByProject, setTasksByProject] = useState<Record<string, Task[]>>({});
@@ -76,8 +74,9 @@ export default function PomodoroPage() {
   const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
   const [logs, setLogs] = useState<PomodoroLog[]>([]);
   const [hasLoadedLogs, setHasLoadedLogs] = useState(false);
-  const [projectId, setProjectId] = useState("");
-  const [taskId, setTaskId] = useState("");
+  const [fixedProjectId, setFixedProjectId] = useState("");
+  const [continuousProjectId, setContinuousProjectId] = useState("");
+  const [sessionNote, setSessionNote] = useState("");
   const [draft, setDraft] = useState<SessionDraft | null>(null);
 
   useEffect(() => {
@@ -92,7 +91,6 @@ export default function PomodoroPage() {
 
       setProjects(nextProjects);
       setTasksByProject(nextTasksByProject);
-      setProjectId(nextProjects[0]?.id ?? "");
     }
 
     loadProjectsAndTasks()
@@ -161,17 +159,16 @@ export default function PomodoroPage() {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [currentModeDuration, mode, projectId, sessionStartedAt, sessionState, taskId]);
+  }, [currentModeDuration, mode, sessionStartedAt, sessionState, sessionNote, fixedProjectId, continuousProjectId]);
 
-  const selectedProject = projects.find((project) => project.id === projectId);
-  const selectedTasks = projectId ? tasksByProject[projectId] ?? [] : [];
-  const selectedTask = selectedTasks.find((task) => task.id === taskId);
   const completedToday = logs.filter((log) => isToday(new Date(log.completedAt))).length;
   const totalFocusMinutes = logs.filter((log) => log.mode === "focus").reduce((sum, log) => sum + log.minutes, 0);
   const averageFocus = getAverage(logs.map((log) => log.focus).filter(isNumber));
   const completionPercent = Math.round(((currentModeDuration - secondsLeft) / currentModeDuration) * 100);
   const minutesLabel = formatSeconds(secondsLeft);
   const heatmap = useMemo(() => buildHeatmap(logs), [logs]);
+  const fixedProjects = projects.filter((project) => project.type === "fixed");
+  const continuousProjects = projects.filter((project) => project.type === "continuous");
 
   function changeMode(nextMode: TimerMode) {
     setMode(nextMode);
@@ -197,18 +194,34 @@ export default function PomodoroPage() {
     setSessionStartedAt(null);
   }
 
-  function completeTimerSession() {
+  async function completeTimerSession() {
     const endAt = new Date();
     const startAt = sessionStartedAt ? new Date(sessionStartedAt) : new Date(endAt.getTime() - currentModeDuration * 1000);
     setSessionState("idle");
     setSessionStartedAt(null);
-    setDraft(createDraft("timer", {
+    const nextDraft = createDraft("timer", {
       startAt: toDateTimeLocal(startAt),
       endAt: toDateTimeLocal(endAt),
       mode,
-      projectId,
-      taskId,
-    }));
+      projectId: "",
+      taskId: "",
+    }, sessionNote);
+
+    const note = sessionNote.trim();
+    if (note) {
+      try {
+        const assignment = await matchPomodoroAssignment(note, getSelectedProjectIds(fixedProjectId, continuousProjectId));
+        if (assignment.assigned && assignment.project_id && assignment.task_id) {
+          nextDraft.projectId = assignment.project_id;
+          nextDraft.taskId = assignment.task_id;
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Could not assign Pomodoro session");
+      }
+    }
+
+    setDraft(nextDraft);
+    setSessionNote("");
   }
 
   function openManualSession() {
@@ -218,9 +231,9 @@ export default function PomodoroPage() {
       startAt: toDateTimeLocal(startAt),
       endAt: toDateTimeLocal(endAt),
       mode: "focus",
-      projectId,
-      taskId,
-    }));
+      projectId: "",
+      taskId: "",
+    }, sessionNote));
   }
 
   function openEditSession(log: PomodoroLog) {
@@ -233,17 +246,25 @@ export default function PomodoroPage() {
       projectId: log.projectId ?? "",
       taskId: log.taskId ?? "",
       done: log.done ?? "",
-      mood: log.mood ?? "",
       energy: log.energy ?? 7,
       focus: log.focus ?? 80,
     });
   }
 
-  function saveDraft(event: FormEvent<HTMLFormElement>) {
+  async function saveDraft(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft) return;
 
     const nextLog = draftToLog(draft);
+    const previousLog = draft.id ? logs.find((log) => log.id === draft.id) : undefined;
+
+    try {
+      await investSessionTime(previousLog, nextLog);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not invest session time");
+      return;
+    }
+
     setLogs((current) => {
       if (draft.id) return current.map((log) => (log.id === draft.id ? nextLog : log));
       return [nextLog, ...current].slice(0, 80);
@@ -255,7 +276,7 @@ export default function PomodoroPage() {
   function saveDraftWithoutDetails() {
     if (!draft) return;
 
-    const nextLog = draftToLog({ ...draft, done: "", mood: "", energy: 0, focus: 0 });
+    const nextLog = draftToLog({ ...draft, done: "", energy: 0, focus: 0 });
     setLogs((current) => [nextLog, ...current].slice(0, 80));
     setDraft(null);
     resetTimer();
@@ -289,11 +310,56 @@ export default function PomodoroPage() {
       taskId: nextDraft.taskId || undefined,
       taskTitle: draftTask?.title ?? "General focus",
       done: nextDraft.done.trim() || undefined,
-      mood: nextDraft.mood || null,
       energy: nextDraft.energy || null,
       focus: nextDraft.focus || null,
+      investedTaskId: nextDraft.taskId || undefined,
+      investedMinutes: nextDraft.taskId && nextDraft.mode === "focus" ? minutes : undefined,
       isManual: nextDraft.source === "manual",
     };
+  }
+
+  async function investSessionTime(previousLog: PomodoroLog | undefined, nextLog: PomodoroLog) {
+    const previousMinutes = previousLog?.investedTaskId && previousLog.mode === "focus" ? previousLog.investedMinutes ?? previousLog.minutes : 0;
+    const nextMinutes = nextLog.investedTaskId && nextLog.mode === "focus" ? nextLog.investedMinutes ?? nextLog.minutes : 0;
+    const deltas = new Map<string, { deltaHours: number; projectId?: string }>();
+
+    if (previousLog?.investedTaskId && previousMinutes > 0) {
+      deltas.set(previousLog.investedTaskId, {
+        deltaHours: -(previousMinutes / 60),
+        projectId: previousLog.projectId,
+      });
+    }
+    if (nextLog.investedTaskId && nextMinutes > 0) {
+      const current = deltas.get(nextLog.investedTaskId);
+      deltas.set(nextLog.investedTaskId, {
+        deltaHours: (current?.deltaHours ?? 0) + nextMinutes / 60,
+        projectId: nextLog.projectId ?? current?.projectId,
+      });
+    }
+
+    for (const [taskId, change] of deltas) {
+      if (change.deltaHours !== 0) {
+        await adjustTaskTime(change.projectId, taskId, change.deltaHours);
+      }
+    }
+  }
+
+  async function adjustTaskTime(projectId: string | undefined, taskId: string, deltaHours: number) {
+    const task = findTask(taskId);
+    if (!task) return;
+
+    const nextTimeSpent = Math.max(0, roundHours(task.time_spent_hours + deltaHours));
+    const updatedTask = await updateTask(taskId, { time_spent_hours: nextTimeSpent });
+    const targetProjectId = projectId ?? updatedTask.project_id;
+
+    setTasksByProject((current) => ({
+      ...current,
+      [targetProjectId]: (current[targetProjectId] ?? []).map((item) => (item.id === taskId ? updatedTask : item)),
+    }));
+  }
+
+  function findTask(taskId: string) {
+    return Object.values(tasksByProject).flat().find((task) => task.id === taskId);
   }
 
   return (
@@ -308,7 +374,7 @@ export default function PomodoroPage() {
               </p>
               <h1 className="mt-7 max-w-3xl text-5xl font-semibold leading-tight text-stone-950 md:text-7xl">Timebox the work. Keep the receipt.</h1>
               <p className="mt-6 max-w-2xl text-lg leading-8 text-stone-700">
-                Run a focused sprint, then log what moved, how it felt, and which project earned the minutes.
+                Run a focused sprint, then log what moved and which project earned the minutes.
               </p>
             </div>
 
@@ -440,6 +506,37 @@ export default function PomodoroPage() {
       </section>
 
       <section className="mx-auto grid max-w-7xl gap-5 px-5 py-8 md:px-8">
+        {sessionState !== "idle" ? (
+          <div className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+            <div className="grid gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
+              <div className="grid gap-4">
+                <ProjectSelect
+                  label="Fixed project"
+                  projects={fixedProjects}
+                  value={fixedProjectId}
+                  onChange={setFixedProjectId}
+                />
+                <ProjectSelect
+                  label="Continuous project"
+                  projects={continuousProjects}
+                  value={continuousProjectId}
+                  onChange={setContinuousProjectId}
+                />
+              </div>
+              <label className="block text-sm font-medium text-stone-700">
+                Session note
+                <textarea
+                  value={sessionNote}
+                  onChange={(event) => setSessionNote(event.target.value)}
+                  rows={5}
+                  placeholder="Drafted API route, reviewed task card, fixed timer state..."
+                  className="mt-2 w-full resize-none rounded-md border border-stone-300 bg-white px-4 py-3 outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
+                />
+              </label>
+            </div>
+          </div>
+        ) : null}
+
         <div className="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -545,8 +642,7 @@ export default function PomodoroPage() {
                   <p className={`text-sm leading-6 ${missingDetails ? "font-medium text-orange-800" : "text-stone-700"}`}>
                     {log.done || "Missing log details. Click to add what got done."}
                   </p>
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <LogMetric label="Mood" value={log.mood ?? "Missing"} />
+                  <div className="grid grid-cols-2 gap-2 text-center">
                     <LogMetric label="Energy" value={isNumber(log.energy) ? `${log.energy}/10` : "Missing"} />
                     <LogMetric label="Focus" value={isNumber(log.focus) ? `${log.focus}%` : "Missing"} />
                   </div>
@@ -702,21 +798,7 @@ function SessionModal({
           />
         </label>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <label className="block text-sm font-medium text-stone-700">
-            Mood
-            <select
-              value={draft.mood}
-              onChange={(event) => onChange({ ...draft, mood: event.target.value as Mood | "" })}
-              className="mt-2 w-full rounded-md border border-stone-300 bg-white px-4 py-3 outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
-            >
-              <option value="">Select mood</option>
-              {moods.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
           <RangeInput label="Energy" max={10} min={1} suffix="/10" value={draft.energy} onChange={(value) => onChange({ ...draft, energy: value })} />
           <RangeInput label="Focus" max={100} min={0} suffix="%" value={draft.focus} onChange={(value) => onChange({ ...draft, focus: value })} />
         </div>
@@ -752,12 +834,11 @@ function SessionModal({
   );
 }
 
-function createDraft(source: SessionDraft["source"], seed: Pick<SessionDraft, "mode" | "startAt" | "endAt" | "projectId" | "taskId">): SessionDraft {
+function createDraft(source: SessionDraft["source"], seed: Pick<SessionDraft, "mode" | "startAt" | "endAt" | "projectId" | "taskId">, done = ""): SessionDraft {
   return {
     source,
     ...seed,
-    done: "",
-    mood: "",
+    done,
     energy: 7,
     focus: 80,
   };
@@ -871,6 +952,36 @@ function TimingMetric({ detail, label, value }: { detail: string; label: string;
   );
 }
 
+function ProjectSelect({
+  label,
+  onChange,
+  projects,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  projects: Project[];
+  value: string;
+}) {
+  return (
+    <label className="block text-sm font-medium text-stone-700">
+      {label}
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 w-full rounded-md border border-stone-300 bg-white px-4 py-3 outline-none ring-teal-600/15 transition focus:border-teal-600 focus:ring-4"
+      >
+        <option value="">None</option>
+        {projects.map((project) => (
+          <option key={project.id} value={project.id}>
+            {project.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function NumberField({ label, max, min, onChange, value }: { label: string; max: number; min: number; onChange: (value: number) => void; value: number }) {
   return (
     <label className="block text-sm font-medium text-stone-700">
@@ -941,7 +1052,7 @@ function heatClass(count: number) {
 }
 
 function isMissingDetails(log: PomodoroLog) {
-  return !log.done || !log.mood || !isNumber(log.energy) || !isNumber(log.focus);
+  return !log.done || !isNumber(log.energy) || !isNumber(log.focus);
 }
 
 function formatSeconds(totalSeconds: number) {
@@ -975,6 +1086,14 @@ function isNumber(value: unknown): value is number {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function roundHours(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function getSelectedProjectIds(fixedProjectId: string, continuousProjectId: string) {
+  return [fixedProjectId, continuousProjectId].filter(Boolean);
 }
 
 function startOfDay(date: Date) {

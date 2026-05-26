@@ -40,6 +40,14 @@ export type ProjectInput = Pick<Project, "name" | "type">;
 export type TaskInput = Omit<Task, "id" | "created_at">;
 export type TaskUpdate = Partial<Omit<Task, "id" | "project_id" | "created_at">>;
 
+export type PomodoroAssignment = {
+  assigned: boolean;
+  confidence: number;
+  project_id?: string | null;
+  task_id?: string | null;
+  reason?: string | null;
+};
+
 export type BookChapter = {
   id: string;
   book_id: string;
@@ -160,6 +168,13 @@ export function updateTask(taskId: string, task: TaskUpdate) {
   return request<Task>(`/tasks/${taskId}`, {
     method: "PUT",
     body: JSON.stringify(task),
+  });
+}
+
+export function matchPomodoroAssignment(note: string, projectIds: string[] = []) {
+  return request<PomodoroAssignment>("/tasks/pomodoro-assignment", {
+    method: "POST",
+    body: JSON.stringify({ note, project_ids: projectIds }),
   });
 }
 
