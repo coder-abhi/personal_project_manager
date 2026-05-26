@@ -1,5 +1,5 @@
-export type ProjectType = "continuous" | "fixed" | "study";
-export type TaskStatus = "todo" | "in_progress" | "done" | "delayed";
+export type ProjectType = "continuous" | "fixed";
+export type TaskStatus = "todo" | "in_progress" | "done";
 export type TaskPriority = "high" | "medium" | "low";
 
 export type Project = {
@@ -13,7 +13,6 @@ export type ProjectSummary = Project & {
   total_tasks: number;
   completed_tasks: number;
   in_progress_tasks: number;
-  delayed_tasks: number;
   overdue_tasks: number;
   eta_hours: number;
   time_spent_hours: number;
@@ -31,6 +30,7 @@ export type Task = {
   priority: TaskPriority;
   eta_hours: number;
   time_spent_hours: number;
+  start_date?: string | null;
   deadline?: string | null;
   created_at: string;
 };

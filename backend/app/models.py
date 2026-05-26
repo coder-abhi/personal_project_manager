@@ -11,14 +11,12 @@ from .database import Base
 class ProjectType(str, enum.Enum):
     continuous = "continuous"
     fixed = "fixed"
-    study = "study"
 
 
 class TaskStatus(str, enum.Enum):
     todo = "todo"
     in_progress = "in_progress"
     done = "done"
-    delayed = "delayed"
 
 
 class TaskPriority(str, enum.Enum):
@@ -57,6 +55,7 @@ class Task(Base):
     priority: Mapped[TaskPriority] = mapped_column(Enum(TaskPriority), default=TaskPriority.medium, nullable=False)
     eta_hours: Mapped[float] = mapped_column(Float, default=0, nullable=False)
     time_spent_hours: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 

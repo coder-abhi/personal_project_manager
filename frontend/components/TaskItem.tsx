@@ -4,7 +4,6 @@ const statusStyles: Record<TaskStatus, string> = {
   todo: "bg-gray-100 text-gray-700",
   in_progress: "bg-blue-100 text-blue-700",
   done: "bg-emerald-100 text-emerald-700",
-  delayed: "bg-red-100 text-red-700",
 };
 
 const priorityStyles: Record<TaskPriority, string> = {
@@ -22,19 +21,29 @@ const progressTones = [
 
 type TaskItemProps = {
   task: Task;
+  onEdit: (task: Task) => void;
   onStatusChange: (taskId: string, nextStatus: TaskStatus) => void;
   onToggleComplete: (task: Task) => void;
 };
 
-export function TaskItem({ task, onStatusChange, onToggleComplete }: TaskItemProps) {
+export function TaskItem({ task, onEdit, onStatusChange, onToggleComplete }: TaskItemProps) {
   const deadline = task.deadline ? new Date(task.deadline).toLocaleDateString() : "No deadline";
+  const startDate = task.start_date ? new Date(task.start_date).toLocaleDateString() : "No start date";
   const overrun = task.time_spent_hours - task.eta_hours;
   const progress = getTaskProgress(task);
   const progressTone = progressTones.find((tone) => progress <= tone.limit) ?? progressTones[progressTones.length - 1];
   const remainingHours = task.status === "done" ? 0 : Math.max(task.eta_hours - task.time_spent_hours, 0);
 
   return (
-    <div className="grid gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm md:grid-cols-[76px_minmax(0,1.5fr)_0.8fr_0.8fr] md:items-center">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onEdit(task)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") onEdit(task);
+      }}
+      className="grid cursor-pointer gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:border-gray-300 hover:shadow-md md:grid-cols-[76px_minmax(0,1.5fr)_0.8fr_0.8fr] md:items-center"
+    >
       <div className="flex items-center gap-3 md:block">
         <div
           className="grid size-16 place-items-center rounded-full"
@@ -59,9 +68,8 @@ export function TaskItem({ task, onStatusChange, onToggleComplete }: TaskItemPro
           </span>
         </div>
         {task.description ? <p className="mt-1 text-sm text-gray-500">{task.description}</p> : null}
-        <p className={task.status === "delayed" ? "mt-2 text-sm font-medium text-red-600" : "mt-2 text-sm text-gray-600"}>
-          Deadline: {deadline}
-        </p>
+        <p className="mt-2 text-sm text-gray-600">Deadline: {deadline}</p>
+        <p className="mt-1 text-sm text-gray-600">Start: {task.status === "todo" ? "Not started" : startDate}</p>
       </div>
 
       <div className="grid grid-cols-3 gap-2 rounded-md bg-gray-50 p-3 text-sm md:grid-cols-1">
@@ -84,7 +92,11 @@ export function TaskItem({ task, onStatusChange, onToggleComplete }: TaskItemPro
       <div className="flex flex-col gap-2">
         <button
           type="button"
-          onClick={() => onToggleComplete(task)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleComplete(task);
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
           className={
             task.status === "done"
               ? "rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50"
@@ -95,13 +107,14 @@ export function TaskItem({ task, onStatusChange, onToggleComplete }: TaskItemPro
         </button>
         <select
           value={task.status}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
           onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
           className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm outline-none ring-gray-900/10 focus:ring-4"
         >
           <option value="todo">Todo</option>
           <option value="in_progress">In progress</option>
           <option value="done">Done</option>
-          <option value="delayed">Delayed</option>
         </select>
       </div>
     </div>

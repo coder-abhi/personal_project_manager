@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
+import { TaskEditor } from "@/components/TaskEditor";
 import { TaskItem } from "@/components/TaskItem";
 import { TimelineBar } from "@/components/TimelineBar";
-import { createTask, getProjects, getProjectTasks, updateTask, type Project, type Task, type TaskPriority, type TaskStatus } from "@/lib/api";
+import { createTask, getProjects, getProjectTasks, updateTask, type Project, type Task, type TaskPriority, type TaskStatus, type TaskUpdate } from "@/lib/api";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -21,11 +22,13 @@ export default function ProjectDetailPage({ params }: PageProps) {
   const [description, setDescription] = useState("");
   const [eta, setEta] = useState("1");
   const [spent, setSpent] = useState("0");
+  const [startDate, setStartDate] = useState("");
   const [deadline, setDeadline] = useState("");
   const [status, setStatus] = useState<TaskStatus>("todo");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -63,6 +66,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
       priority,
       eta_hours: Number(eta) || 0,
       time_spent_hours: Number(spent) || 0,
+      start_date: status === "todo" ? null : startDate ? new Date(startDate).toISOString() : null,
       deadline: deadline ? new Date(deadline).toISOString() : null,
     });
 
@@ -71,6 +75,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
     setDescription("");
     setEta("1");
     setSpent("0");
+    setStartDate("");
     setDeadline("");
     setStatus("todo");
     setPriority("medium");
@@ -79,6 +84,12 @@ export default function ProjectDetailPage({ params }: PageProps) {
   async function handleStatusChange(taskId: string, nextStatus: TaskStatus) {
     const updated = await updateTask(taskId, { status: nextStatus });
     setTasks((current) => current.map((task) => (task.id === taskId ? updated : task)));
+  }
+
+  async function handleTaskSave(taskId: string, changes: TaskUpdate) {
+    const updated = await updateTask(taskId, changes);
+    setTasks((current) => current.map((task) => (task.id === taskId ? updated : task)));
+    setEditingTask((current) => (current?.id === taskId ? updated : current));
   }
 
   async function handleToggleComplete(task: Task) {
@@ -137,6 +148,80 @@ export default function ProjectDetailPage({ params }: PageProps) {
 
       {error ? <p className="mt-6 rounded-lg bg-red-50 p-4 text-sm text-red-700">{error}</p> : null}
 
+      <section className="mt-8">
+        <div className="mb-4 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-950">Tasks</h2>
+            <p className="text-sm text-gray-500">
+              {filteredTasks.length} shown of {tasks.length} total
+            </p>
+          </div>
+          <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 shadow-sm sm:grid-cols-2">
+            <label className="grid gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Status</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+                className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm outline-none ring-gray-900/10 focus:ring-4"
+              >
+                <option value="all">All</option>
+                <option value="incomplete">Incomplete</option>
+                <option value="todo">Todo</option>
+                <option value="in_progress">In progress</option>
+                <option value="done">Done</option>
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Priority</span>
+              <select
+                value={priorityFilter}
+                onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
+                className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm outline-none ring-gray-900/10 focus:ring-4"
+              >
+                <option value="all">All</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        {isLoading ? <p className="rounded-lg bg-white p-6 text-gray-500 shadow-sm">Loading tasks...</p> : null}
+        {!isLoading && tasks.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-gray-500">
+            Add your first task to see progress and timeline bars.
+          </p>
+        ) : null}
+        {!isLoading && tasks.length > 0 && filteredTasks.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-gray-500">
+            No tasks match the selected filters.
+          </p>
+        ) : null}
+        <div className="space-y-3">
+          {filteredTasks.map((task) => (
+            <TaskItem
+              key={task.id}
+              task={task}
+              onEdit={setEditingTask}
+              onStatusChange={handleStatusChange}
+              onToggleComplete={handleToggleComplete}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-gray-950">Timeline</h2>
+          <p className="text-sm text-gray-500">{totals.spent.toFixed(1)}h logged</p>
+        </div>
+        <div className="space-y-3">
+          {tasks.map((task) => (
+            <TimelineBar key={task.id} task={task} onEdit={setEditingTask} />
+          ))}
+        </div>
+      </section>
+
       <section className="mt-8 rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="grid gap-6 p-5 lg:grid-cols-[1fr_280px]">
           <div>
@@ -147,6 +232,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
             <p className="text-sm text-stone-300">Next task budget</p>
             <p className="mt-2 text-2xl font-semibold">{(Number(eta) || 0).toFixed(1)}h</p>
             <p className="mt-1 text-xs text-stone-400">{deadline ? `Due ${new Date(deadline).toLocaleDateString()}` : "No deadline selected"}</p>
+            <p className="mt-1 text-xs text-stone-400">{status === "todo" ? "Starts when moved in progress" : startDate ? `Starts ${new Date(startDate).toLocaleDateString()}` : "Auto start on save"}</p>
           </div>
         </div>
 
@@ -184,7 +270,6 @@ export default function ProjectDetailPage({ params }: PageProps) {
                 <option value="todo">Todo</option>
                 <option value="in_progress">In progress</option>
                 <option value="done">Done</option>
-                <option value="delayed">Delayed</option>
               </select>
             </label>
             <label className="grid gap-2">
@@ -194,6 +279,16 @@ export default function ProjectDetailPage({ params }: PageProps) {
                 value={deadline}
                 onChange={(event) => setDeadline(event.target.value)}
                 className="rounded-md border border-gray-200 px-3 py-3 outline-none ring-gray-900/10 focus:ring-4"
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className="text-sm font-semibold text-gray-700">Start date</span>
+              <input
+                type="date"
+                value={startDate}
+                disabled={status === "todo"}
+                onChange={(event) => setStartDate(event.target.value)}
+                className="rounded-md border border-gray-200 px-3 py-3 outline-none ring-gray-900/10 focus:ring-4 disabled:bg-gray-50 disabled:text-gray-400"
               />
             </label>
             <label className="grid gap-2">
@@ -241,74 +336,7 @@ export default function ProjectDetailPage({ params }: PageProps) {
         </form>
       </section>
 
-      <section className="mt-8">
-        <div className="mb-4 grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-950">Tasks</h2>
-            <p className="text-sm text-gray-500">
-              {filteredTasks.length} shown of {tasks.length} total
-            </p>
-          </div>
-          <div className="grid gap-3 rounded-lg border border-gray-200 bg-white p-3 shadow-sm sm:grid-cols-2">
-            <label className="grid gap-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Status</span>
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-                className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm outline-none ring-gray-900/10 focus:ring-4"
-              >
-                <option value="all">All</option>
-                <option value="incomplete">Incomplete</option>
-                <option value="todo">Todo</option>
-                <option value="in_progress">In progress</option>
-                <option value="delayed">Delayed</option>
-                <option value="done">Done</option>
-              </select>
-            </label>
-            <label className="grid gap-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Priority</span>
-              <select
-                value={priorityFilter}
-                onChange={(event) => setPriorityFilter(event.target.value as PriorityFilter)}
-                className="rounded-md border border-gray-200 bg-white px-3 py-2 text-sm outline-none ring-gray-900/10 focus:ring-4"
-              >
-                <option value="all">All</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        {isLoading ? <p className="rounded-lg bg-white p-6 text-gray-500 shadow-sm">Loading tasks...</p> : null}
-        {!isLoading && tasks.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-gray-500">
-            Add your first task to see progress and timeline bars.
-          </p>
-        ) : null}
-        {!isLoading && tasks.length > 0 && filteredTasks.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center text-gray-500">
-            No tasks match the selected filters.
-          </p>
-        ) : null}
-        <div className="space-y-3">
-          {filteredTasks.map((task) => (
-            <TaskItem key={task.id} task={task} onStatusChange={handleStatusChange} onToggleComplete={handleToggleComplete} />
-          ))}
-        </div>
-      </section>
-
-      <section className="mt-8">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-950">Timeline</h2>
-          <p className="text-sm text-gray-500">{totals.spent.toFixed(1)}h logged</p>
-        </div>
-        <div className="space-y-3">
-          {tasks.map((task) => (
-            <TimelineBar key={task.id} task={task} />
-          ))}
-        </div>
-      </section>
+      <TaskEditor task={editingTask} onClose={() => setEditingTask(null)} onSave={handleTaskSave} />
     </main>
   );
 }

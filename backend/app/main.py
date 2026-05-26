@@ -19,11 +19,14 @@ def ensure_sqlite_compatibility() -> None:
         return
 
     task_columns = {column["name"] for column in inspector.get_columns("tasks")}
-    if "priority" in task_columns:
-        return
 
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE tasks ADD COLUMN priority VARCHAR(6) NOT NULL DEFAULT 'medium'"))
+        if "priority" not in task_columns:
+            connection.execute(text("ALTER TABLE tasks ADD COLUMN priority VARCHAR(6) NOT NULL DEFAULT 'medium'"))
+        if "start_date" not in task_columns:
+            connection.execute(text("ALTER TABLE tasks ADD COLUMN start_date DATETIME"))
+        connection.execute(text("UPDATE tasks SET status = 'todo' WHERE status = 'delayed'"))
+        connection.execute(text("UPDATE projects SET type = 'continuous' WHERE type = 'study'"))
 
 
 ensure_sqlite_compatibility()

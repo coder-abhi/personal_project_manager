@@ -7,7 +7,6 @@ import { createProject, getProjectSummaries, type ProjectSummary, type ProjectTy
 const projectTypes: { value: ProjectType; label: string; description: string }[] = [
   { value: "fixed", label: "Fixed", description: "A scoped project with a clear finish line." },
   { value: "continuous", label: "Continuous", description: "A recurring workflow or ongoing habit." },
-  { value: "study", label: "Study", description: "Learning plans, courses, and research tracks." },
 ];
 
 export default function DashboardPage() {
@@ -38,7 +37,7 @@ export default function DashboardPage() {
       completedTasks: projects.reduce((sum, project) => sum + project.completed_tasks, 0),
       activeTasks: projects.reduce((sum, project) => sum + project.in_progress_tasks, 0),
       overdueTasks: projects.reduce((sum, project) => sum + project.overdue_tasks, 0),
-      plannedHours: projects.reduce((sum, project) => sum + project.eta_hours, 0),
+      fixedRemainingHours: projects.reduce((sum, project) => (project.type === "fixed" ? sum + project.remaining_hours : sum), 0),
       spentHours: projects.reduce((sum, project) => sum + project.time_spent_hours, 0),
       completedHours: projects.reduce((sum, project) => sum + project.completed_hours, 0),
       remainingHours: projects.reduce((sum, project) => sum + project.remaining_hours, 0),
@@ -129,8 +128,8 @@ export default function DashboardPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="rounded-lg bg-stone-950 p-5 text-white shadow-xl shadow-stone-900/15">
-                <p className="text-sm text-stone-300">Planned</p>
-                <p className="mt-2 text-3xl font-semibold">{stats.plannedHours.toFixed(1)}h</p>
+                <p className="text-sm text-stone-300">Work Hours Req</p>
+                <p className="mt-2 text-3xl font-semibold">{stats.fixedRemainingHours.toFixed(1)}h</p>
               </div>
               <div className="rounded-lg bg-teal-600 p-5 text-white shadow-xl shadow-teal-900/15">
                 <p className="text-sm text-teal-50">Spent</p>
@@ -148,7 +147,7 @@ export default function DashboardPage() {
             <h2 className="mt-2 text-3xl font-semibold text-stone-950">Existing projects</h2>
           </div>
           <p className="max-w-xl text-sm leading-6 text-stone-600">
-            Each card rolls up live task data: next active deadline, subtasks, completion, delayed work, and time balance.
+            Each card rolls up live task data: next active deadline, subtasks, completion, overdue work, and time balance.
           </p>
         </div>
 

@@ -25,7 +25,6 @@ class ProjectSummary(ProjectRead):
     total_tasks: int
     completed_tasks: int
     in_progress_tasks: int
-    delayed_tasks: int
     overdue_tasks: int
     eta_hours: float
     time_spent_hours: float
@@ -42,6 +41,7 @@ class TaskBase(BaseModel):
     priority: TaskPriority = TaskPriority.medium
     eta_hours: float = Field(default=0, ge=0)
     time_spent_hours: float = Field(default=0, ge=0)
+    start_date: datetime | None = None
     deadline: datetime | None = None
 
 
@@ -56,6 +56,7 @@ class TaskUpdate(BaseModel):
     priority: TaskPriority | None = None
     eta_hours: float | None = Field(default=None, ge=0)
     time_spent_hours: float | None = Field(default=None, ge=0)
+    start_date: datetime | None = None
     deadline: datetime | None = None
 
 

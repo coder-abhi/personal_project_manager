@@ -56,7 +56,6 @@ def list_project_summaries(db: Session) -> list[schemas.ProjectSummary]:
                 total_tasks=len(tasks),
                 completed_tasks=sum(task.status == models.TaskStatus.done for task in tasks),
                 in_progress_tasks=sum(task.status == models.TaskStatus.in_progress for task in tasks),
-                delayed_tasks=sum(task.status == models.TaskStatus.delayed for task in tasks),
                 overdue_tasks=len(overdue_tasks),
                 eta_hours=sum(task.eta_hours for task in tasks),
                 time_spent_hours=sum(task.time_spent_hours for task in tasks),
@@ -80,7 +79,13 @@ def get_project(db: Session, project_id: str) -> models.Project | None:
 
 
 def create_task(db: Session, task: schemas.TaskCreate) -> models.Task:
-    db_task = models.Task(**task.model_dump())
+    task_data = task.model_dump()
+    if task_data["status"] == models.TaskStatus.todo:
+        task_data["start_date"] = None
+    elif task_data["status"] == models.TaskStatus.in_progress and task_data["start_date"] is None:
+        task_data["start_date"] = datetime.now(timezone.utc)
+
+    db_task = models.Task(**task_data)
     db.add(db_task)
     db.commit()
     db.refresh(db_task)
@@ -97,7 +102,15 @@ def update_task(db: Session, task_id: str, task: schemas.TaskUpdate) -> models.T
     if db_task is None:
         return None
 
-    for key, value in task.model_dump(exclude_unset=True).items():
+    changes = task.model_dump(exclude_unset=True)
+    next_status = changes.get("status", db_task.status)
+
+    if next_status == models.TaskStatus.todo:
+        changes["start_date"] = None
+    elif next_status == models.TaskStatus.in_progress and "start_date" not in changes and db_task.start_date is None:
+        changes["start_date"] = datetime.now(timezone.utc)
+
+    for key, value in changes.items():
         setattr(db_task, key, value)
 
     db.commit()

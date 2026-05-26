@@ -4,18 +4,29 @@ const statusTone = {
   todo: "border-gray-200 bg-gray-50 text-gray-700",
   in_progress: "border-blue-200 bg-blue-50 text-blue-700",
   done: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  delayed: "border-red-200 bg-red-50 text-red-700",
 };
 
-export function TimelineBar({ task }: { task: Task }) {
+export function TimelineBar({ task, onEdit }: { task: Task; onEdit?: (task: Task) => void }) {
   const deadline = task.deadline ? new Date(task.deadline) : null;
+  const startDate = task.start_date ? new Date(task.start_date) : null;
   const createdAt = new Date(task.created_at);
+  const displayedStart = startDate ?? createdAt;
   const daysUntilDeadline = deadline ? getDayDifference(deadline, new Date()) : null;
-  const durationDays = deadline ? Math.max(getDayDifference(deadline, createdAt), 1) : null;
+  const durationDays = deadline ? Math.max(getDayDifference(deadline, displayedStart), 1) : null;
   const remainingHours = task.status === "done" ? 0 : Math.max(task.eta_hours - task.time_spent_hours, 0);
 
   return (
-    <div className="relative grid gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm md:grid-cols-[140px_minmax(0,1fr)_120px] md:items-center">
+    <div
+      role={onEdit ? "button" : undefined}
+      tabIndex={onEdit ? 0 : undefined}
+      onClick={() => onEdit?.(task)}
+      onKeyDown={(event) => {
+        if (onEdit && (event.key === "Enter" || event.key === " ")) onEdit(task);
+      }}
+      className={`relative grid gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm md:grid-cols-[140px_minmax(0,1fr)_120px] md:items-center ${
+        onEdit ? "cursor-pointer transition hover:border-gray-300 hover:shadow-md" : ""
+      }`}
+    >
       <div className="flex items-center gap-3">
         <div className="grid size-12 place-items-center rounded-full border border-gray-200 bg-gray-50">
           <span className="text-sm font-semibold text-gray-950">{deadline ? deadline.getDate() : "--"}</span>
@@ -40,7 +51,7 @@ export function TimelineBar({ task }: { task: Task }) {
           <div className="absolute inset-y-0 right-0 w-2 rounded-full bg-gray-300" />
         </div>
         <div className="mt-2 flex justify-between text-xs text-gray-500">
-          <span>Created {createdAt.toLocaleDateString()}</span>
+          <span>{startDate ? `Started ${startDate.toLocaleDateString()}` : `Created ${createdAt.toLocaleDateString()}`}</span>
           <span>{deadline ? deadline.toLocaleDateString() : "No deadline set"}</span>
         </div>
       </div>

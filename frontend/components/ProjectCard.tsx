@@ -8,20 +8,17 @@ type ProjectCardProps = {
 const typeStyles: Record<ProjectSummary["type"], string> = {
   fixed: "bg-amber-100 text-amber-900",
   continuous: "bg-cyan-100 text-cyan-900",
-  study: "bg-violet-100 text-violet-900",
 };
 
 const typeLabels: Record<ProjectSummary["type"], string> = {
   fixed: "Fixed",
   continuous: "Continuous",
-  study: "Study",
 };
 
 export function ProjectCard({ project }: ProjectCardProps) {
   const totalTasks = project.total_tasks ?? 0;
   const completedTasks = project.completed_tasks ?? 0;
   const inProgressTasks = project.in_progress_tasks ?? 0;
-  const delayedTasks = project.delayed_tasks ?? 0;
   const overdueTasks = project.overdue_tasks ?? 0;
   const etaHours = project.eta_hours ?? 0;
   const spentHours = project.time_spent_hours ?? 0;
@@ -30,7 +27,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const progressBasis = completedHours + remainingHours;
   const progress = progressBasis === 0 ? 0 : Math.min(Math.round((completedHours / progressBasis) * 100), 100);
   const deadline = formatDeadline(project.next_deadline);
-  const statusTone = overdueTasks > 0 ? "text-red-700" : delayedTasks > 0 ? "text-amber-700" : "text-emerald-700";
+  const statusTone = overdueTasks > 0 ? "text-red-700" : "text-emerald-700";
 
   return (
     <Link
@@ -79,7 +76,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
 
         <div className="flex items-center justify-between text-sm">
           <span className={overdueTasks > 0 ? "font-semibold text-red-700" : "text-stone-500"}>
-            {overdueTasks > 0 ? `${overdueTasks} overdue` : `${delayedTasks} delayed`}
+            {overdueTasks > 0 ? `${overdueTasks} overdue` : "On track"}
           </span>
           <span className="font-medium text-stone-950 transition group-hover:translate-x-1">Open</span>
         </div>
