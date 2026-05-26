@@ -49,6 +49,11 @@ const standardDurations: DurationSet = {
   short: 5 * 60,
   long: 15 * 60,
 };
+const defaultAutoDurations: DurationSet = {
+  focus: 15 * 60,
+  short: 5 * 60,
+  long: 15 * 60,
+};
 const modeLabels: Record<TimerMode, string> = {
   focus: "Focus",
   short: "Short Break",
@@ -61,12 +66,12 @@ export default function PomodoroPage() {
   const [tasksByProject, setTasksByProject] = useState<Record<string, Task[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [timingMode, setTimingMode] = useState<TimingMode>("standard");
+  const [timingMode, setTimingMode] = useState<TimingMode>("auto");
   const [isTimingOpen, setIsTimingOpen] = useState(false);
   const [customFocusMinutes, setCustomFocusMinutes] = useState(25);
   const [customBreakMinutes, setCustomBreakMinutes] = useState(5);
   const [mode, setMode] = useState<TimerMode>("focus");
-  const [secondsLeft, setSecondsLeft] = useState(standardDurations.focus);
+  const [secondsLeft, setSecondsLeft] = useState(defaultAutoDurations.focus);
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [sessionStartedAt, setSessionStartedAt] = useState<string | null>(null);
   const [logs, setLogs] = useState<PomodoroLog[]>([]);

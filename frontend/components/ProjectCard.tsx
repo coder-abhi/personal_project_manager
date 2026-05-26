@@ -25,7 +25,13 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const completedHours = project.completed_hours ?? 0;
   const remainingHours = project.remaining_hours ?? 0;
   const progressBasis = completedHours + remainingHours;
-  const progress = progressBasis === 0 ? 0 : Math.min(Math.round((completedHours / progressBasis) * 100), 100);
+  const nextGoal = getNextContinuousGoal(spentHours);
+  const progress =
+    project.type === "continuous"
+      ? getContinuousSprintProgress(spentHours, nextGoal)
+      : progressBasis === 0
+        ? 0
+        : Math.min(Math.round((completedHours / progressBasis) * 100), 100);
   const deadline = formatDeadline(project.next_deadline);
   const statusTone = overdueTasks > 0 ? "text-red-700" : "text-emerald-700";
 
@@ -67,9 +73,9 @@ export function ProjectCard({ project }: ProjectCardProps) {
             <p className={`mt-1 font-semibold ${statusTone}`}>{deadline}</p>
           </div>
           <div>
-            <p className="text-stone-500">Planned / spent</p>
+            <p className="text-stone-500">{project.type === "continuous" ? "Next Goal / Invest" : "Planned / Invest"}</p>
             <p className="mt-1 font-semibold text-stone-950">
-              {etaHours.toFixed(1)}h / {spentHours.toFixed(1)}h
+              {project.type === "continuous" ? nextGoal.toFixed(0) : etaHours.toFixed(1)}h / {spentHours.toFixed(1)}h
             </p>
           </div>
         </div>
@@ -83,6 +89,17 @@ export function ProjectCard({ project }: ProjectCardProps) {
       </div>
     </Link>
   );
+}
+
+function getNextContinuousGoal(spentHours: number) {
+  return (Math.floor(Math.max(spentHours, 0) / 100) + 1) * 100;
+}
+
+function getContinuousSprintProgress(spentHours: number, nextGoal: number) {
+  const sprintStart = nextGoal - 100;
+  const sprintHours = Math.max(spentHours - sprintStart, 0);
+
+  return Math.min(Math.round(sprintHours), 100);
 }
 
 function Metric({ label, value }: { label: string; value: number }) {
